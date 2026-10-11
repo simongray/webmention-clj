@@ -1,8 +1,6 @@
 webmention-clj
 ==============
 
-[![Clojars Project](https://img.shields.io/clojars/v/dk.simongray/webmention-clj.svg)](https://clojars.org/dk.simongray/webmention-clj)
-
 This is a Clojure and ClojureScript implementation of
 [Webmention](https://www.w3.org/TR/webmention/), the W3C standard by which
 a page tells another page that it links to it, e.g. a reply on one blog
@@ -24,24 +22,17 @@ kind, its author and its content.
 
 The same code runs on the JVM, in Node and in the browser.
 
-> This library was spun out of [indieblog](https://github.com/simongray/indieblog),
-> the software of [simon.grays.blog](https://simon.grays.blog), which sends,
-> receives and shows Webmentions. It was developed with assistance from
-> frontier LLMs.
+> This library was spun out of
+> [indieblog](https://github.com/simongray/indieblog), the software of
+> [simon.grays.blog](https://simon.grays.blog), which sends, receives and
+> shows Webmentions. It was developed with assistance from frontier LLMs.
 
 Getting started
 ---------------
 
-It requires Clojure 1.11+ and Java 11+. For the latest release, add it
-from [Clojars](https://clojars.org/dk.simongray/webmention-clj) to the
-`:deps` in your `deps.edn`:
-
-```clojure
-dk.simongray/webmention-clj {:mvn/version "0.1.0"}
-```
-
-For changes that aren't released yet, use the SHA of the latest commit on
-`master` instead:
+It requires Clojure 1.11+ and Java 11+. It isn't on Clojars yet, so add
+it to the `:deps` in your `deps.edn` by the SHA of the latest commit on
+`master`:
 
 ```clojure
 dk.simongray/webmention-clj
@@ -80,8 +71,11 @@ to your own site, and send them all with `send-all!`:
 (def post
   "https://simon.grays.blog/posts/2026/hello")
 
+(def html
+  "<p>Hi <a href='https://webmention.rocks/test/1'>there</a>")
+
 (def targets
-  (->> (webmention/links "<p>Hi <a href='https://webmention.rocks/test/1'>there</a>" post)
+  (->> (webmention/links html post)
        (remove #(str/starts-with? % "https://simon.grays.blog/"))))
 
 (webmention/send-all! post targets)
@@ -128,9 +122,8 @@ or in its head:
 The handler checks each Webmention at once and answers 202, or 400 with
 the reason in plain text. It gives the job of a Webmention that it takes,
 a map of its `:source` and `:target`, to `:schedule!`. Then `verify!`
-fetches the source and gives a report of whether it links the target, as
-`:verified`, `:unlinked`, `:gone` or `:failed`. The report of an HTML
-source that links the target also has its `:mf2`, its microformats as
+fetches the source and reports whether it links the target. The report
+of an HTML source that does also has its `:mf2`, its microformats as
 [microformats-clj](https://github.com/simongray/microformats-clj) parses
 them. A sender sends the same Webmention again when the source changes,
 so keep one mention for each source and target.
@@ -161,22 +154,27 @@ and its content:
 ;;     :author      {:name "Jane Doe" :url "https://jane.example/"}
 ;;     :published   "2026-10-11T12:00:00+02:00"
 ;;     :content     {:text   "Nice post!"
-;;                   :hiccup ([:p {} "Nice " [:a {:href "https://simon.grays.blog/posts/2026/hello"
-;;                                                :rel  "nofollow ugc"}
-;;                                            "post"] "!"])}
+;;                   :hiccup ([:p {}
+;;                             "Nice "
+;;                             [:a {:href "https://simon.grays.blog/…"
+;;                                  :rel  "nofollow ugc"}
+;;                              "post"]
+;;                             "!"])}
 ;;     :in-reply-to ["https://simon.grays.blog/posts/2026/hello"]}
 ```
 
 The `:kind` is `:reply`, `:like`, `:repost`, `:bookmark`, `:rsvp` or
 `:mention`. Link a mention by its `:url` rather than its source, since
 the source of a post that a bridge such as Bridgy sent on is a page of
-the bridge. The `:hiccup` of the content is sanitized by
+the bridge.
+
+The `:hiccup` of the content is sanitized by
 [html-pieces](https://github.com/simongray/html-pieces), with its
 headings as paragraphs, its images as their alt text, and
 `rel="nofollow ugc"` on its links. To show it in another way, give
-`summary` an `:element-fn` of your own. Show it with a renderer that
-escapes text, e.g. Replicant or `hiccup2.core/html`. To keep an excerpt
-of the content rather than all of it, e.g. of a reply, give `summary` a
+`summary` an `:element-fn` of your own, and show it with a renderer that
+escapes text, e.g. Replicant or `hiccup2.core/html`. For an excerpt
+rather than the whole content, e.g. of a reply, give `summary` a
 `:max-length`, and see its docstring for the other options.
 
 When a page names its author by a URL alone, e.g. with
@@ -186,7 +184,9 @@ representative h-card:
 
 ```clojure
 (mention/author! report)
-;; => {:name "Jane Doe" :url "https://jane.example/" :photo "https://jane.example/me.jpg"}
+;; => {:name  "Jane Doe"
+;;     :url   "https://jane.example/"
+;;     :photo "https://jane.example/me.jpg"}
 ```
 
 The `mention/representative-card` function gives the h-card of any page
