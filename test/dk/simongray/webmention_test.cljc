@@ -255,6 +255,8 @@
   (run (verify {:outcome :verified :source source :target target :status 200 :url source}
                (page (str "<p>Re <a href='" target "'>this</a>")))
        (verify {:outcome :unlinked} (page "<p>Re nothing"))
+       (verify {:outcome :verified :title "A reply"}
+               (page (str "<title> A reply </title><a href='" target "'>this</a>")))
        ;; the attributes of HTML whose value is a URL
        (verify {:outcome :verified} (page "<img src='https://you.example/posts/hello' alt=''>"))
        (verify {:outcome :verified} (page "<video src='https://you.example/posts/hello'></video>"))

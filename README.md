@@ -175,7 +175,9 @@ the bridge. The `:hiccup` of the content is sanitized by
 headings as paragraphs, its images as their alt text, and
 `rel="nofollow ugc"` on its links. To show it in another way, give
 `summary` an `:element-fn` of your own. Show it with a renderer that
-escapes text, e.g. Replicant or `hiccup2.core/html`.
+escapes text, e.g. Replicant or `hiccup2.core/html`. To keep an excerpt
+of the content rather than all of it, e.g. of a reply, give `summary` a
+`:max-length`, and see its docstring for the other options.
 
 When a page names its author by a URL alone, e.g. with
 `<a class="u-author" href="https://jane.example/">`, the `:author` is

@@ -57,6 +57,8 @@
     (testing "in their order"
       (is (= :like (kind (str (to "u-in-reply-to") (to "u-like-of")))))
       (is (= :repost (kind (str (to "u-like-of") (to "u-repost-of")))))
+      (is (= :reply (kind (str (to "u-bookmark-of") (to "u-in-reply-to"))))
+          "a bookmark that's a reply too")
       (is (= :reply (kind (str (to "u-in-reply-to") "<data class=p-rsvp value=perhaps></data>")))
           "an rsvp without a valid answer"))
     (testing "of the target alone"
@@ -128,7 +130,35 @@
     (is (nil? (:name (summary "<div class=h-entry><h1 class=p-name>Hi</h1></div>")))
         "nor when there's no content")
     (is (nil? (:name (summary "<div class=h-entry>a bare note</div>")))
-        "nor when the name is implied")))
+        "nor when the name is implied"))
+  (testing "the name of any entry"
+    (is (= "A note of mine"
+           (:name (mention/summary (report "<div class=h-entry><p class=p-name>A note  of mine</p>
+                                              <p class=e-content>A note of mine, and more</p></div>")
+                                   {:any-name? true}))))
+    (is (= "a bare note"
+           (:name (mention/summary (report "<div class=h-entry>a bare note</div>") {:any-name? true})))))
+  (testing "the title element of the page, as indieblog has it for a reply context"
+    (let [titled (assoc (report "<div class=h-entry><p class=e-content>No name</p></div>") :title "Some Blog")]
+      (is (= "Some Blog" (:name (mention/summary titled {:page-title? true}))))
+      (is (nil? (:name (mention/summary titled))))
+      (is (= "Mine" (:name (mention/summary (assoc (report "<div class=h-entry><p class=p-name>Mine</p></div>") :title "Some Blog")
+                                            {:any-name? true :page-title? true})))
+          "after the name of the entry"))))
+
+(deftest excerpts
+  (let [excerpt (fn [html n]
+                  (:content (mention/summary (report (str "<div class=h-entry><div class=e-content>" html "</div></div>"))
+                                             {:max-length n})))]
+    (is (= {:text "One two…" :hiccup '([:p {} "One two…"])}
+           (excerpt "<p>One two three four</p><p>five</p>" 9))
+        "cut back to the end of a word")
+    (is (= "One two…" (:text (excerpt "<p>One two three four</p>" 7))) "or at the end of one")
+    (is (= {:text "Nice post…" :hiccup '([:p {} "Nice " [:a {:href "https://them.example/x" :rel "nofollow ugc"} "post"] "…"])}
+           (excerpt "<p>Nice <a href=/x>post</a> indeed, very nice</p>" 12))
+        "across elements")
+    (is (= "One.\n\nTwo." (:text (excerpt "<p>One.</p><p>Two.</p>" 8)))
+        "the breaks between paragraphs not counted, and no ellipsis when it all fits")))
 
 (deftest content
   (let [content #(:content (summary (str "<div class=h-entry>" % "</div>")))]
@@ -223,6 +253,10 @@
                  {})
          (expect {:url card-page}
                  (str "<div class=h-entry><a class=u-author href=" card-page ">Jane</a></div>") {})
+         ;; the first two steps of representative h-card parsing alone
+         (expect {:url card-page}
+                 (str "<div class=h-entry><a class=u-author href=" card-page ">Jane</a></div>")
+                 {card-page "<p class=h-card><a class='p-name u-url' href=/>Jane</a></p>"})
          ;; a rel=author link of a permalink page
          (expect {:name "Jane Doe" :url card-page :photo "https://jane.example/me.jpg"}
                  (str "<a rel=author href=" card-page ">Jane</a><div class=h-entry><a class=u-url href=" source ">#</a></div>")

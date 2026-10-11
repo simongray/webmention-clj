@@ -68,6 +68,15 @@
             (url/resolve base href)))
         elements))
 
+(defn title
+  "The text of the first title element among the `elements` of a page,
+  without whitespace at its ends, or nil."
+  [elements]
+  (some (fn [[tag _ & children]]
+          (when (= :title tag)
+            (not-empty (str/trim (apply str (filter string? children))))))
+        elements))
+
 (defn parse
   "The elements of the HTML or Hiccup `x` of the page at `url`, and the base
   URL of their relative URLs, as a map of :nodes, :elements and :base."

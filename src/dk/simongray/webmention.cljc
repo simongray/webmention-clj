@@ -257,7 +257,8 @@
 
 (defn- examined
   "What the document of the 2xx `response` for a source says of the
-  `target`, by `opts`: an :outcome, and for a verified HTML page its :mf2."
+  `target`, by `opts`: an :outcome, and for a verified HTML page its :mf2
+  and the :title of its title element, if it has one."
   [target {:keys [url headers body] :as response} opts]
   (let [s (str body)]
     (case (source/kind (media-type headers) s)
@@ -267,9 +268,10 @@
                 {:outcome :gone}
 
                 (source/html-links? elements base target)
-                {:outcome :verified
-                 :mf2     (mf/parse nodes url
-                                    (select-keys opts [:proposed-backcompat?]))}
+                (cond-> {:outcome :verified
+                         :mf2     (mf/parse nodes url
+                                            (select-keys opts [:proposed-backcompat?]))}
+                  (page/title elements) (assoc :title (page/title elements)))
 
                 :else
                 {:outcome :unlinked}))
@@ -294,7 +296,8 @@
   :outcome, whether the source links the target.
 
   - :verified, when it does, with the :mf2 of an HTML page, its
-    microformats as microformats-clj parses them
+    microformats as microformats-clj parses them, and its :title, the
+    text of its title element
   - :unlinked, when it doesn't
   - :gone, when the source answers 410, or its page says 410 in a meta
     element with http-equiv=\"Status\"

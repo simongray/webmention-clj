@@ -93,21 +93,20 @@
   [item]
   (some-> (property item :rsvp) str/trim str/lower-case rsvp-values))
 
-;; Post Type Discovery 4, with bookmark-of before in-reply-to as a choice
-;; of our own: the Note leaves bookmarks to a later version, and reply
-;; comes last there, so that a response of another kind with a reply's
-;; properties stays of that kind
+;; Post Type Discovery 4, with bookmark-of after in-reply-to as a choice of
+;; our own: the Note leaves bookmarks to a later version, and a bookmark
+;; that's a reply too is a reply, as indieblog has it
 (def response-properties
   "The kinds of response and the property by which a response is of each,
   in the order that they count."
   [[:repost :repost-of]
    [:like :like-of]
-   [:bookmark :bookmark-of]
-   [:reply :in-reply-to]])
+   [:reply :in-reply-to]
+   [:bookmark :bookmark-of]])
 
 (defn kind
   "The kind of response that the h-entry `entry` is to `target`: :rsvp,
-  :repost, :like, :bookmark, :reply, or else :mention.
+  :repost, :like, :reply, :bookmark, or else :mention.
 
   A property counts when one of its values is the target, as a URL or as
   the url of an embedded h-cite, so that a reply to another page that
@@ -164,6 +163,22 @@
           (when (url/web-url? page)
             {:page page})))))
 
+(defn- cards
+  "The h-cards in the parsed `mf2` of the page at `url` that can represent
+  it, by the steps of representative h-card parsing, in their order: the
+  first whose url and uid are the URL of the page, the first whose url is
+  that of a rel=me link of the page, and the only h-card, if its url is
+  that of the page."
+  [mf2 url]
+  (let [page   (source/normalized url)
+        all    (filter #(typed? "h-card" %) (items mf2))
+        me     (set (map source/normalized (get-in mf2 [:rels "me"])))
+        named? (fn [k card] (some #{page} (urls card k)))]
+    [(first (filter #(and (named? :url %) (named? :uid %)) all))
+     (first (filter #(some me (urls % :url)) all))
+     (when (= 1 (count all))
+       (first (filter #(named? :url %) all)))]))
+
 (defn representative-card
   "The representative h-card of the page at `url` with the parsed `mf2`, as
   card gives it, or nil when it has none.
@@ -172,15 +187,7 @@
   the first whose url is that of a rel=me link of the page, or else the
   only h-card, if its url is that of the page."
   [mf2 url]
-  (let [page   (source/normalized url)
-        cards  (filter #(typed? "h-card" %) (items mf2))
-        me     (set (map source/normalized (get-in mf2 [:rels "me"])))
-        named? (fn [k card] (some #{page} (urls card k)))]
-    (some-> (or (first (filter #(and (named? :url %) (named? :uid %)) cards))
-                (first (filter #(some me (urls % :url)) cards))
-                (when (= 1 (count cards))
-                  (first (filter #(named? :url %) cards))))
-            card)))
+  (some-> (some identity (cards mf2 url)) card))
 
 (defn- page-card
   "The first h-card in the parsed `mf2` whose url is `page`, as card gives
@@ -192,25 +199,28 @@
              first
              card)))
 
+;; the authorship algorithm, step 7, which takes the first two steps of
+;; representative h-card parsing alone
 (defn- fetched-card
-  "The representative h-card of the HTML page in the `response`, or nil."
+  "The h-card that represents the author of the HTML page in the
+  `response`, as card gives it, or nil."
   [{:keys [status url headers body] :as response}]
   (when (and status
              (<= 200 status 299)
              (= :html (source/kind (headers/media-type
                                     (headers/header headers "content-type"))
                                    (str body))))
-    (representative-card (mf/parse (str body) url) url)))
+    (some-> (some identity (take 2 (cards (mf/parse (str body) url) url)))
+            card)))
 
-;; the authorship algorithm, step 7, which takes the representative h-card
-;; of the author's page, with its third step as a choice of our own
 (defn author!
   "The author of the mention in the `report` of a verification, by the
   authorship algorithm, as card gives it, with `opts`.
 
   When the page names its author by the URL of the author's page alone,
-  it fetches that page for its representative h-card, and else takes the
-  h-card with that url on the page of the mention. Failing that, the
+  it fetches that page for the h-card whose url and uid are that of the
+  page, or else whose url is that of a rel=me link there. Failing that, it
+  takes the h-card with that url on the page of the mention, and else the
   author is the :url alone. The `opts` are those of
   webmention/default-options. In ClojureScript, it gives a promise."
   ([report]
@@ -229,6 +239,10 @@
               {:url page})))))))
 
 ;;; Content
+
+(def option-keys
+  "The options of summary that aren't those of html-pieces."
+  [:max-length :any-name? :page-title?])
 
 (defn content-element
   "The `element` of a mention's content as your page shows it: a heading
@@ -249,19 +263,52 @@
   (for [p (str/split (str/trim s) #"\n\s*\n")]
     (into [:p {}] (interpose [:br {}] (str/split-lines p)))))
 
+(defn- cut
+  "The text `s` cut back to the end of a word within `n` characters."
+  [s n]
+  (let [head (subs s 0 n)]
+    (if (re-find #"^\s" (subs s n))
+      (str/trimr head)
+      (str/replace head #"\s+\S*$" ""))))
+
+(defn- excerpt
+  "The sanitized Hiccup `nodes` with `n` characters of text at most, as a
+  pair of the nodes and the number of characters left, which is negative
+  once a text has been cut, and then ends in an ellipsis."
+  [nodes n]
+  (reduce (fn [[kept left] node]
+            (cond
+              (neg? left)
+              (reduced [kept left])
+
+              (not (string? node))
+              (let [[tag attrs & children] node
+                    [kids left]            (excerpt children left)]
+                [(conj kept (into [tag attrs] kids)) left])
+
+              (<= (count node) left)
+              [(conj kept node) (- left (count node))]
+
+              :else
+              [(conj kept (str (cut node left) "…")) -1]))
+          [[] n]
+          nodes))
+
 ;; Webmention 4.1: what's shown of a source is sanitized
 (defn- content
-  "The content of the `item`, or else its summary, by the html-pieces
-  options `opts`, as a map of its :text and its sanitized :hiccup, with
-  its URLs resolved against `base`. Nil when it has neither."
-  [item base opts]
+  "The content of the `item`, or else its summary, by `opts`, as a map of
+  its :text and its sanitized :hiccup, with its URLs resolved against
+  `base`, and its text cut back to the :max-length of `opts`. Nil when it
+  has neither."
+  [item base {:keys [max-length] :as opts}]
   (when-let [v (some #(first (get-in item [:properties %])) [:content :summary])]
     (let [x      (if (map? v) (:hiccup v (:value v)) v)
-          hiccup (html/hiccup (if (string? x) (paragraphs x) x)
-                              (merge {:element-fn content-element
-                                      :base-url   base
-                                      :shorthand? false}
-                                     opts))
+          hiccup (cond-> (html/hiccup (if (string? x) (paragraphs x) x)
+                                      (merge {:element-fn content-element
+                                              :base-url   base
+                                              :shorthand? false}
+                                             (apply dissoc opts option-keys)))
+                   max-length (-> (excerpt max-length) first seq))
           text   (html/text hiccup)]
       (when-not (str/blank? text)
         {:text text :hiccup hiccup}))))
@@ -283,6 +330,16 @@
     (when (and (seq name) (seq content) (not (str/starts-with? content name)))
       name)))
 
+(defn- named
+  "The name of the `entry` on the page whose title element has the text
+  `page-title`, by the :any-name? and :page-title? of `opts`, or nil."
+  [entry page-title {:keys [any-name? page-title?] :as opts}]
+  (or (if any-name?
+        (squeezed (property entry :name))
+        (title entry))
+      (when page-title?
+        page-title)))
+
 (defn summary
   "The mention in the `report` of a verification, as a map of what a page
   shows of it, by `opts`:
@@ -301,11 +358,19 @@
   - :rsvp, the answer of an RSVP
 
   Each key is left out when the page has nothing for it. The `opts` are
-  those of html-pieces for the Hiccup of the content, with content-element
-  as the :element-fn unless they give another."
+  these, and those of html-pieces for the Hiccup of the content, with
+  content-element as the :element-fn unless they give another:
+
+  - :max-length, how many characters of text the content keeps at most,
+    the breaks between its paragraphs not counted. It's cut back to the
+    end of a word, with an ellipsis, e.g. for an excerpt of a reply.
+  - :any-name?, true for the name of any entry, which for a note is its
+    text, rather than for the title of an article alone
+  - :page-title?, true for the :title of the report as the name, that of
+    the title element of the page, when the entry has none"
   ([report]
    (summary report {}))
-  ([{:keys [mf2 url source target] :as report} opts]
+  ([{:keys [mf2 url source target title] :as report} opts]
    (let [base                (or url source)
          e                   (entry mf2 base)
          {:keys [card page]} (named-author mf2 base e)
@@ -315,7 +380,7 @@
                :kind        k
                :url         (or (first (urls e :url)) base)
                :author      (or card (when page {:url page}))
-               :name        (title e)
+               :name        (named e title opts)
                :published   (property e :published)
                :content     (content e base opts)
                :in-reply-to (not-empty (vec (urls e :in-reply-to)))
