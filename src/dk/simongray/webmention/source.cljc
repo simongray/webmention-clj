@@ -73,11 +73,12 @@
   "Whether a value of the JSON `s` is the URL `target`, or else, when `s`
   isn't JSON, whether its text has the URL in it."
   [s target]
-  (try
-    (boolean (some #(and (string? %) (same-url? % target))
-                   (json-values s)))
-    (catch #?(:clj Exception :cljs :default) _
-      (str/includes? s target))))
+  (let [t (normalized target)]
+    (try
+      (boolean (some #(and (string? %) (= t (normalized %)))
+                     (json-values s)))
+      (catch #?(:clj Exception :cljs :default) _
+        (str/includes? s target)))))
 
 ;; https://indieweb.org/meta_http-equiv_status, which webmention.rocks
 ;; takes for a deletion too
