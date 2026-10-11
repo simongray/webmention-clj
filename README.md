@@ -1,6 +1,8 @@
 webmention-clj
 ==============
 
+[![Clojars Project](https://img.shields.io/clojars/v/dk.simongray/webmention-clj.svg)](https://clojars.org/dk.simongray/webmention-clj)
+
 This is a Clojure and ClojureScript implementation of
 [Webmention](https://www.w3.org/TR/webmention/), the W3C standard for
 telling a page that another page links to it, e.g. a reply on one blog
@@ -31,9 +33,16 @@ The same code runs on the JVM, in Node and in the browser.
 Getting started
 ---------------
 
-It requires Clojure 1.11+ and Java 11+. It isn't on Clojars yet, so add
-it to the `:deps` in your `deps.edn` with the SHA of the latest commit
-on `master`:
+It requires Clojure 1.11+ and Java 11+. For the latest release, add it
+from [Clojars](https://clojars.org/dk.simongray/webmention-clj) to the
+`:deps` in your `deps.edn`:
+
+```clojure
+dk.simongray/webmention-clj {:mvn/version "0.1.0"}
+```
+
+For changes that aren't released yet, use the SHA of the latest commit on
+`master` instead:
 
 ```clojure
 dk.simongray/webmention-clj
