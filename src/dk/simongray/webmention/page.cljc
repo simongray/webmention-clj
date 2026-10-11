@@ -1,32 +1,10 @@
 (ns ^:no-doc dk.simongray.webmention.page
   "The HTML of a whole page, as html-pieces parses it: its elements in
-  document order, the URL that its relative URLs resolve against, and the
-  URLs in its attributes."
+  document order, the URL that its relative URLs resolve against, the URLs
+  in its attributes and its title."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.html-pieces.url :as url]))
-
-;; HTML Standard, section 4.12.3: the content of a template isn't part of
-;; the document
-(defn elements
-  "Every element of the Hiccup `nodes` of a page, in document order, but
-  those inside a template."
-  [nodes]
-  (let [branch? #(and (vector? %) (not= :template (first %)))]
-    (->> nodes
-         (mapcat #(tree-seq branch? (partial drop 2) %))
-         (filter vector?))))
-
-;; HTML Standard, section 4.2.3: the first base element with an href
-(defn base-url
-  "The URL that relative URLs among the `elements` of the page at `base`
-  resolve against: the href of its first base element, or else `base`."
-  [elements base]
-  (or (some (fn [[tag {:keys [href]}]]
-              (when (and (= :base tag) href)
-                (url/resolve base href)))
-            elements)
-      base))
 
 (defn- candidates
   "The URLs in the value `v` of the attribute `k`: one, or a list of them
@@ -68,12 +46,13 @@
             (not-empty (str/trim (apply str (filter string? children))))))
         elements))
 
+;; HTML Standard, sections 4.2.3 and 4.12.3: the first base element with an
+;; href, and no content of a template
 (defn parse
   "The elements of the HTML or Hiccup `x` of the page at `url`, and the base
   URL of their relative URLs, as a map of :nodes, :elements and :base."
   [x url]
-  (let [nodes    (html/parse x)
-        elements (elements nodes)]
+  (let [nodes (html/parse x)]
     {:nodes    nodes
-     :elements elements
-     :base     (base-url elements url)}))
+     :elements (html/elements nodes)
+     :base     (html/base-url nodes {:base-url url})}))
