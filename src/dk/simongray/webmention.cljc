@@ -14,11 +14,11 @@
   and dk.simongray.webmention.receiver, after the two roles of the
   standard, and aren't part of the API."
   (:require [clojure.string :as str]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.webmention.discovery :as discovery]
-            [dk.simongray.webmention.page :as page]
             [dk.simongray.webmention.receiver :as receiver]
             [dk.simongray.webmention.ring :as ring]
             [dk.simongray.webmention.sender :as sender]))
@@ -189,9 +189,9 @@
   duplicates. They're the targets of the page's Webmentions, once you've
   left out e.g. those of your own site."
   [x url]
-  (let [{:keys [elements base]} (page/parse x url)]
-    (into [] (comp (filter url/web-url?) (distinct))
-          (page/hyperlinks elements base))))
+  ;; HTML Standard, section 4.6.1: the hyperlinks of a page
+  (into [] (comp (map #(get-in % [1 :href])) (filter url/web-url?) (distinct))
+        (html/links x {:base-url url :link-tags #{:a :area}})))
 
 ;;; Receiving
 

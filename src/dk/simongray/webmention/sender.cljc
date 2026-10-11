@@ -2,13 +2,12 @@
   "The steps of sending a Webmention, as Webmention 3.1 has them: finding
   the endpoint on the page of a target, posting the Webmention to it, and
   reading its answer."
-  (:require [dk.simongray.html-pieces.url :as whatwg]
+  (:require [dk.simongray.html-pieces :as html]
+            [dk.simongray.html-pieces.url :as whatwg]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]
-            [dk.simongray.webmention.discovery :as discovery]
-            [dk.simongray.webmention.page :as page]
             [dk.simongray.webmention.source :as source]))
 
 ;; Webmention 3.1.2
@@ -20,8 +19,11 @@
     ;; against the base element of the page too, as a browser resolves an
     ;; href, a choice of our own where Webmention 3.1.2 names the target's
     ;; URL
-    (let [{:keys [elements base]} (page/parse (str body) url)]
-      (first (discovery/page-urls elements base "webmention" #{:link :a})))))
+    (some-> (html/links (str body) {:base-url  url
+                                    :rel       "webmention"
+                                    :link-tags #{:link :a}})
+            first
+            (get-in [1 :href]))))
 
 (defn location
   "The URL in the Location header of the `response` to a request for

@@ -59,17 +59,6 @@
           :when     u]
       u)))
 
-(defn hyperlinks
-  "The URLs that the a and area elements among the `elements` link to,
-  resolved against `base`, in document order."
-  [elements base]
-  (let [absolute (url/resolver base)]
-    ;; HTML Standard, section 4.6.1
-    (keep (fn [[tag {:keys [href]}]]
-            (when (and (#{:a :area} tag) href)
-              (absolute href)))
-          elements)))
-
 (defn title
   "The text of the first title element among the `elements` of a page,
   without whitespace at its ends, or nil."
