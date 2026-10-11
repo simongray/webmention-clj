@@ -103,17 +103,41 @@
                  {[:post endpoint] (answer 202)})
          #(is (= [[nil target] [:post endpoint]] (map (juxt :method :url) @sent)) "discovery, then the POST")
          #(is (= 0 (:max-redirects (second @sent))) "the POST follows no redirect by itself")
+         (expect {:outcome :sent :status 200} {[:post endpoint] (answer 200)})
          (expect {:outcome :sent :status 201 :location "https://you.example/status/1"}
                  {[:post endpoint] (answer 201 :headers {"location" "/status/1"})})
          (expect {:outcome :failed :status 400 :message "The target doesn't take Webmentions"}
                  {[:post endpoint] (answer 400 :body "The target doesn't take Webmentions")})
+         (expect {:outcome :failed :status 500 :message (apply str (repeat 200 "x"))}
+                 {[:post endpoint] (answer 500 :body (apply str (repeat 300 "x")))})
          (expect {:outcome :sent :status 202 :endpoint endpoint}
                  {[:post endpoint]              (answer 307 :headers {"location" "/webmention/2"})
                   [:post (str endpoint "/2")] (answer 202 :url (str endpoint "/2"))})
          #(is (= [:post :post] (map :method (rest @sent))) "a 307 sends the POST on")
+         (expect {:outcome :sent :status 202}
+                 {[:post endpoint]              (answer 308 :headers {"location" "/webmention/2"})
+                  [:post (str endpoint "/2")] (answer 202 :url (str endpoint "/2"))})
+         #(is (= [:post :post] (map :method (rest @sent))) "and so does a 308")
          (expect {:outcome :failed :status 302}
                  {[:post endpoint] (answer 302 :headers {"location" "/elsewhere"})})
          #(is (= 2 (count @sent)) "a 302 doesn't")
+         (expect {:outcome :failed :status 307}
+                 {[:post endpoint] (answer 307 :headers {"location" "http://you.example/webmention"})})
+         #(is (= 2 (count @sent)) "nor a 307 from https to http")
+         (expect {:outcome :failed :status 307} {[:post endpoint] (answer 307)})
+         (expect {:outcome :failed :status 307}
+                 {[:post endpoint] (answer 307 :headers {"location" "/webmention"})}
+                 :max-redirects 2)
+         #(is (= 4 (count @sent)) "a loop of redirects ends after :max-redirects")
+         #(async/then (wm/send! source target {:send (fn [{:keys [method]}]
+                                                       (if (= :post method)
+                                                         (throw (ex-info "Connection reset" {}))
+                                                         page))})
+                      (fn [{:keys [outcome error] :as report}]
+                        (is (= [:failed endpoint "Connection reset"] [outcome (:endpoint report) (:reason error)]))))
+         #(async/then (send! {[:get target]   (assoc-in page [:headers "cache-control"] "max-age=600")
+                              [:post endpoint] (answer 202)})
+                      (fn [report] (is (inst? (:not-before report)) "until when the target's endpoint can be kept")))
          (expect {:outcome :no-endpoint} {[:get target] (html target "<p>Hi")})
          (expect {:outcome :failed :status 503} {[:get target] (answer 503 :url target)})
          #(is (= 1 (count @sent)) "a target that fails isn't one without an endpoint")
@@ -147,7 +171,9 @@
                    source))
       "of a and area, http and https alone, each once")
   (is (= ["https://them.example/"] (wm/links [:p [:a {:href "https://them.example/"} "them"]] source))
-      "of Hiccup"))
+      "of Hiccup")
+  (is (= ["https://cdn.example/x/a"] (wm/links "<base href='https://cdn.example/x/'><a href=a>a</a>" source))
+      "against the base of the page"))
 
 (defn- post
   "The POST of a form with the `fields` to an endpoint."
