@@ -9,6 +9,7 @@
   A receiver is a server with a public URL, since a sender posts to its
   endpoint."
   (:require [clojure.string :as str]
+            [dk.simongray.html-pieces.url :as whatwg]
             [dk.simongray.microformats :as mf]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
@@ -134,7 +135,7 @@
      (let [from     (:url request)
            location (when (and (#{307 308} status) (pos? n))
                       (some->> (headers/header headers "location")
-                               (url/absolute-url from)))]
+                               (whatwg/resolve from)))]
        (if (and (url/web-url? location)
                 (not (and (= "https" (url/scheme from))
                           (= "http" (url/scheme location)))))
@@ -155,7 +156,7 @@
   (if (<= 200 status 299)
     (let [location (when (= 201 status)
                      (some->> (headers/header headers "location")
-                              (url/absolute-url url)))]
+                              (whatwg/resolve url)))]
       (cond-> (assoc report :outcome :sent :status status)
         location (assoc :location location)))
     (cond-> (assoc report :outcome :failed :status status)
