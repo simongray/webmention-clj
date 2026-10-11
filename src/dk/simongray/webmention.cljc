@@ -78,6 +78,9 @@
   [{:keys [url headers body] :as response}]
   (let [endpoint (or (first (discovery/header-urls headers url "webmention"))
                      (when (= :html (source/kind (media-type headers) body))
+                       ;; against the base element of the page too, as a
+                       ;; browser resolves an href, a choice of our own
+                       ;; where Webmention 3.1.2 names the target's URL
                        (let [{:keys [elements base]} (page/parse (str body)
                                                                  url)]
                          (first (discovery/page-urls elements base "webmention"
