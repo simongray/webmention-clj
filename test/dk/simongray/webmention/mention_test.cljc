@@ -60,7 +60,14 @@
       (is (= :reply (kind (str (to "u-bookmark-of") (to "u-in-reply-to"))))
           "a bookmark that's a reply too")
       (is (= :reply (kind (str (to "u-in-reply-to") "<data class=p-rsvp value=perhaps></data>")))
-          "an rsvp without a valid answer"))
+          "an rsvp without a valid answer")
+      (is (= :mention (kind (str "<a class=u-in-reply-to href=https://other.example/event>re</a>"
+                                 "<data class=p-rsvp value=yes></data><a href=" target ">see</a>")))
+          "an rsvp to another event"))
+    (testing "the answer of an RSVP"
+      (is (= "interested" (:rsvp (summary (str "<div class=h-entry>" (to "u-in-reply-to")
+                                               "<data class=p-rsvp value=Interested></data></div>")))))
+      (is (nil? (:rsvp (summary (str "<div class=h-entry>" (to "u-in-reply-to") "</div>"))))))
     (testing "of the target alone"
       (is (= :mention (kind (str "<a class=u-in-reply-to href=https://other.example/>re</a>"
                                  "<a href=" target ">and this</a>"))))
@@ -94,6 +101,12 @@
          (:url (summary "<div class=h-entry><a class=u-url href=https://mastodon.example/@jane/1>#</a></div>")))
       "its own, e.g. of a post that a bridge sent on")
   (is (= source (:url (summary "<div class=h-entry>Hi</div>"))) "or else the source's")
+  (is (= {:url     source
+          :content {:text "Hi there" :hiccup '([:p {} [:a {:href "https://them.example/x" :rel "nofollow ugc"} "Hi"] " there"])}}
+         (select-keys (mention/summary (dissoc (report "<div class=h-entry><div class=e-content><p><a href=/x>Hi</a> there</p></div></div>")
+                                               :url))
+                      [:url :content]))
+      "the source's for a report without the URL after its redirects")
   (is (= {:source source :target target :kind :mention :url source} (summary "<p>No microformats"))))
 
 (deftest nested-microformats
@@ -163,6 +176,8 @@
     (is (= "One.\n\nTwo.…" (:text (excerpt "<p>One.</p>\n\n<p>Two.</p>\n\n<p>Three.</p>" 8)))
         "the whitespace between paragraphs not counted, and the ellipsis inside the last")
     (is (= "Hi…" (:text (excerpt "<p>Hi there😀😀</p>" 9))) "never in the middle of an emoji")
+    (is (= {:text "…" :hiccup '("…")} (excerpt "<p>Antidisestablishmentarianism</p>" 10))
+        "an ellipsis alone when the first word is longer")
     (is (= "One.\n\nTwo." (:text (excerpt "<p>One.</p><p>Two.</p>" 8)))
         "the breaks between paragraphs not counted, and no ellipsis when it all fits")))
 
@@ -174,7 +189,10 @@
       (is (= '([:p {} "A heading"] [:p {} "A cat" ", and " [:a {:href "https://them.example/x" :rel "nofollow ugc"} "a link"]])
              (:hiccup (content (str "<div class=e-content><h2>A heading</h2><p><img src=/cat.png alt='A cat'>"
                                     "<img src=/tracker.png>, and <a href=/x onclick=steal()>a link</a>"
-                                    "<script>steal()</script></p></div>"))))))
+                                    "<script>steal()</script></p></div>")))))
+      (is (= '([:p {} "One"] [:p {} "Six"])
+             (:hiccup (content "<div class=e-content><h1>One</h1><h6>Six</h6></div>")))
+          "every heading as a paragraph"))
     (testing "a summary as the fallback, and plain text as text"
       (is (= {:text "In short: use <b>." :hiccup '([:p {} "In short: use <b>."])}
              (content "<p class=p-summary>In short: use &lt;b&gt;.</p>"))))
@@ -269,4 +287,8 @@
                  {card-page home})
          (expect nil (str "<a rel=author href=" card-page ">Jane</a><div class=h-entry>Not a permalink</div>")
                  {card-page home})
-         (expect nil "<p>No microformats" {}))))
+         (expect nil "<div class=h-entry><span class=p-author> </span></div>" {})
+         (expect nil "<p>No microformats" {})
+         #(async/then (mention/author! (report (str "<div class=h-entry><a class=u-author href=" card-page ">Jane</a></div>"))
+                                       {:send (fn [_] (throw (ex-info "Connection refused" {})))})
+                      (fn [author] (is (= {:url card-page} author) "the URL alone, when the page can't be fetched"))))))
