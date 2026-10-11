@@ -180,6 +180,12 @@
   [fields]
   {:request-method :post :form-params fields})
 
+(defn- utf-8
+  "The bytes of the text `s` in UTF-8."
+  [s]
+  #?(:clj  (.getBytes ^String s "UTF-8")
+     :cljs (.encode (js/TextEncoder.) s)))
+
 (deftest the-endpoint
   (let [jobs    (atom [])
         taken   (atom [])
@@ -232,6 +238,21 @@
       (is (= [{:source source :target target}] @jobs)))
     (testing "the fields of a form that Ring has read, by keyword or name"
       (is (= 202 (status (post {:source source :target target})))))
+    (testing "the last of a repeated field, and an empty one as none"
+      (reset! jobs [])
+      (is (= 202 (status (post {"source" ["mailto:me@me.example" source] "target" target}))))
+      (is (= 202 (status {:request-method :post
+                          :body           (str "source=x&&source=" source "&target=" target)})))
+      (is (= [{:source source :target target} {:source source :target target}] @jobs))
+      (is (= "The source must be an http or https URL"
+             (:body (serve {:request-method :post :body (str "source=&target=" target)}))))
+      (is (= 400 (status {:request-method :post})) "nor a body at all"))
+    (testing "a body of bytes, or on the JVM a stream"
+      (let [form (str "source=" source "&target=" target)]
+        (is (= 202 (status {:request-method :post :body (utf-8 form)})))
+        #?(:clj (is (= 202 (status {:request-method :post :body (java.io.ByteArrayInputStream. (utf-8 form))}))))
+        #?(:clj (is (= 413 (status {:request-method :post
+                                    :body           (java.io.ByteArrayInputStream. (utf-8 (apply str form (repeat 70000 "a"))))}))))))
     (is (= 413 (status {:request-method :post :body (apply str "source=" (repeat 70000 "a"))})))
     (is (= [405 "POST"] ((juxt :status #(get-in % [:headers "Allow"])) (serve {:request-method :get}))))
     (is (thrown? #?(:clj Exception :cljs js/Error) (wm/handler {:schedule! identity})))))
@@ -246,24 +267,28 @@
      :cljs (js/Promise. (fn [resolve] (serve request resolve resolve)))))
 
 (deftest the-asynchronous-handler
-  (let [serve (wm/handler {:target-pred (constantly true) :schedule! identity})]
+  (let [serve  (wm/handler {:target-pred (constantly true) :schedule! identity})
+        broken (wm/handler {:target-pred (constantly true) :schedule! #(throw (ex-info "The queue is down" {:job %}))})]
     (run #(async/then (answered serve (post {"source" source "target" target}))
-                      (fn [{:keys [status]}] (is (= 202 status)))))))
+                      (fn [{:keys [status]}] (is (= 202 status))))
+         #(async/then (answered broken (post {"source" source "target" target}))
+                      (fn [e] (is (= "The queue is down" (ex-message e)) "an error goes to raise"))))))
 
 (deftest verifying-at-once
   (let [reports (atom [])
-        serve   (fn [body]
+        serve   (fn [response]
                   (wm/handler {:target-pred (constantly true)
                                :report!     #(swap! reports conj (:outcome %))
-                               :send        (sender (atom []) {[:get source] (html source body)})}))
-        request (post {"source" source "target" target})]
-    (run #(async/then ((serve (str "<a href=" target ">Hi</a>")) request)
-                      (fn [{:keys [status]}] (is (= 200 status))))
-         #(async/then ((serve "<p>Hi") request)
-                      (fn [{:keys [status body]}]
-                        (is (= [400 "The source doesn't link the target"] [status body]))))
-         #(is (= [:verified :unlinked] @reports))
-         #(is (= 400 (:status ((serve "") (post {"source" source}))))
+                               :send        (sender (atom []) {[:get source] response})}))
+        answer  (fn [response expected]
+                  #(async/then ((serve response) (post {"source" source "target" target}))
+                               (fn [{:keys [status body]}] (is (= expected [status body])))))]
+    (run (answer (html source (str "<a href=" target ">Hi</a>")) [200 "The source links the target"])
+         (answer (html source "<p>Hi") [400 "The source doesn't link the target"])
+         (answer {:status 410 :url source} [400 "The source is gone"])
+         (answer {:status 500 :url source} [400 "The source can't be fetched"])
+         #(is (= [:verified :unlinked :gone :failed] @reports))
+         #(is (= 400 (:status ((serve (html source "")) (post {"source" source}))))
               "a Webmention that's wrong isn't verified"))))
 
 (defn- verify
@@ -300,6 +325,13 @@
        (verify {:outcome :verified} (page "<blockquote cite='https://you.example/posts/hello'>Hi</blockquote>"))
        (verify {:outcome :verified} (page "<img srcset='/a.png 1x, https://you.example/posts/hello 2x'>"))
        (verify {:outcome :verified} (page "<head><link rel=in-reply-to href='https://you.example/posts/hello'></head>"))
+       (verify {:outcome :verified} (page "<a href=/x ping='https://a.example/ https://you.example/posts/hello'>x</a>"))
+       ;; XHTML, and HTML without a media type, but not text
+       (verify {:outcome :verified :title "X"}
+               (json "application/xhtml+xml" (str "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>X</title></head>"
+                                                  "<body><a href='" target "'>x</a></body></html>")))
+       (verify {:outcome :verified :title "X"} {:status 200 :body (str "<title>X</title><a href='" target "'>x</a>")})
+       (verify {:outcome :verified} {:status 200 :body (str "See " target)})
        ;; resolved against the page, and normalized
        (verify {:outcome :verified} (page "<a href='//you.example/posts/hello'>a</a>"))
        (verify {:outcome :verified} (page "<a href='/posts/hello'>relative</a>") "https://me.example/posts/hello")
@@ -318,6 +350,8 @@
        (verify {:outcome :gone :status 410} {:status 410 :body "Gone"})
        (verify {:outcome :gone :status 200}
                (page (str "<meta http-equiv=Status content='410 Gone'><a href='" target "'>a</a>")))
+       (verify {:outcome :verified}
+               (page (str "<meta http-equiv=Status content='200 OK'><a href='" target "'>a</a>")))
        (verify {:outcome :failed :status 404} {:status 404})
        (verify {:outcome :failed :status 500} {:status 500})
        #(async/then (wm/verify! {:source source :target target}
@@ -343,6 +377,16 @@
        (verify {:outcome :unlinked} (json "text/plain" "See nothing"))
        (verify {:outcome :verified} (json "application/atom+xml" (str "<feed><link href='" target "'/></feed>")))
        (verify {:outcome :unlinked} (json "image/png" target))))
+
+(deftest the-request-for-a-source
+  (let [sent (atom [])]
+    (run #(wm/verify! {:source source :target target} {:send (sender sent {})})
+         #(let [{:keys [headers user-agent timeout-seconds max-bytes max-redirects allow-pred]} (first @sent)]
+            (is (= [wm/accept wm/user-agent] [(get headers "Accept") user-agent])
+                "Webmention 3.2.2: the media types whose links are read")
+            (is (= [5 (* 1024 1024) 5] [timeout-seconds max-bytes max-redirects])
+                "Webmention 4.2: limits on time, size and redirects")
+            (is (fn? allow-pred) "Webmention 4.3: a check of the address")))))
 
 (deftest the-microformats-of-a-source
   (run #(async/then
