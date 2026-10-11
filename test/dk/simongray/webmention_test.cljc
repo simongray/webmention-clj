@@ -115,6 +115,8 @@
                  {[:post endpoint] (answer 302 :headers {"location" "/elsewhere"})})
          #(is (= 2 (count @sent)) "a 302 doesn't")
          (expect {:outcome :no-endpoint} {[:get target] (html target "<p>Hi")})
+         (expect {:outcome :failed :status 503} {[:get target] (answer 503 :url target)})
+         #(is (= 1 (count @sent)) "a target that fails isn't one without an endpoint")
          #(async/then (wm/send! source "mailto:you@you.example" {:send (sender sent {})})
                       (fn [report]
                         (is (= {:outcome :failed :error {:reason "The target is not an http or https URL"}}
@@ -127,7 +129,7 @@
 
 (deftest sending-to-several
   (let [sent    (atom [])
-        answers (into {}
+        answers (into {[:get "https://c.example/"] (html "https://c.example/" "<p>Hi")}
                       (for [t ["https://a.example/" "https://b.example/"]]
                         [[:get t] (html t "<link rel=webmention href=/wm>")]))]
     (run #(async/then (wm/send-all! source ["https://a.example/" "https://b.example/" "https://a.example/" "https://c.example/"]

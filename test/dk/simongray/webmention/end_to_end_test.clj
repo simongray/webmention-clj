@@ -188,7 +188,7 @@
                                          " <a href=/nowhere>c</a>")
                                     source)
                   reports (wm/send-all! source links anywhere)]
-              (is (= [[target :sent] [(str url "/nowhere") :no-endpoint]] (map (juxt :target :outcome) reports))))))))))
+              (is (= [[target :sent] [(str url "/nowhere") :failed]] (map (juxt :target :outcome) reports))))))))))
 
 (deftest receiver-tests-of-webmention-rocks
   (let [jobs     (atom [])

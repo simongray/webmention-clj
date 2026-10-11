@@ -131,8 +131,9 @@
   - :sent, when the endpoint answers with a success, with its :status and,
     for a 201, the :location of a page that tells how the Webmention fares
   - :no-endpoint, when the target names none
-  - :failed, with the :status and the start of the :message of an answer
-    that isn't a success, or the :error of a request that failed
+  - :failed, with the :status of a target or an endpoint that doesn't
+    answer with a success and the start of the endpoint's :message, or the
+    :error of a request that failed
 
   The report also has the :source, the :target, the :endpoint once it's
   known, and the :not-before of the target, if any. The `opts` are those
@@ -151,15 +152,17 @@
       (if (:endpoint opts)
         (select-keys opts [:endpoint])
         (discover! target opts))
-      (fn [{:keys [endpoint error not-before]}]
+      (fn [{:keys [endpoint error status not-before]}]
         (let [report (cond-> {:source source :target target}
                        not-before (assoc :not-before not-before))]
           (cond
-            error    (assoc report :outcome :failed :error error)
-            endpoint (sender/post! (request endpoint source target)
-                                   (assoc report :endpoint endpoint)
-                                   opts)
-            :else    (assoc report :outcome :no-endpoint))))))))
+            error               (assoc report :outcome :failed :error error)
+            endpoint            (sender/post! (request endpoint source target)
+                                              (assoc report :endpoint endpoint)
+                                              opts)
+            (<= 200 status 299) (assoc report :outcome :no-endpoint)
+            :else               (assoc report :outcome :failed
+                                       :status status))))))))
 
 ;; Webmention 3.1.4 and 3.1.5
 (defn send-all!
