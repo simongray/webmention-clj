@@ -1,28 +1,9 @@
 (ns ^:no-doc dk.simongray.webmention.ring
   "The Ring requests that a Webmention endpoint takes, and the answers it
   gives."
-  (:require [clojure.string :as str]
+  (:require [dk.simongray.wary-fetch.bytes :as bytes]
             [dk.simongray.wary-fetch.url :as url])
-  #?(:clj (:import [java.io InputStream]
-                   [java.nio.charset StandardCharsets])))
-
-(defn- utf-8
-  "The bytes of the text `s` in UTF-8."
-  [s]
-  #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
-     :cljs (.encode (js/TextEncoder.) s)))
-
-(defn- text
-  "The text of the bytes `b` in UTF-8."
-  [b]
-  #?(:clj  (String. ^bytes b StandardCharsets/UTF_8)
-     :cljs (.decode (js/TextDecoder.) b)))
-
-(defn- length
-  "The number of bytes in `b`."
-  [b]
-  #?(:clj  (alength ^bytes b)
-     :cljs (.-length b)))
+  #?(:clj (:import [java.io InputStream])))
 
 (defn body-text
   "The text of the `body` of a Ring request, which is a string, bytes, a
@@ -31,27 +12,24 @@
   first."
   [body max-bytes]
   (let [b (cond
-            (nil? body)    (utf-8 "")
-            (string? body) (utf-8 body)
+            (nil? body)    (bytes/encode "")
+            (string? body) (bytes/encode body)
             :else          #?(:clj  (if (bytes? body)
                                       body
                                       (.readNBytes ^InputStream body
                                                    (int (inc max-bytes))))
                               :cljs (when (instance? js/Uint8Array body)
                                       body)))]
-    (when (and b (<= (length b) max-bytes))
-      (text b))))
+    (when (and b (<= (bytes/length b) max-bytes))
+      (bytes/decode b))))
 
-;; URL Standard, section 5.1
+;; URL Standard, section 5.1: a name without = has an empty value
 (defn- fields
   "The fields of the form `s` in application/x-www-form-urlencoded, as pairs
   of a name and a value."
   [s]
-  (let [decode #(url/percent-decode (str/replace % "+" " "))]
-    (for [part  (str/split s #"&")
-          :when (seq part)
-          :let  [[k v] (str/split part #"=" 2)]]
-      [(decode k) (decode (or v ""))])))
+  (for [[k v] (url/query-pairs s)]
+    [k (or v "")]))
 
 (defn form-fields
   "The fields of the form that the Ring `request` posts, as pairs of a name
