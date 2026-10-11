@@ -260,17 +260,25 @@
     (into [:p {}] (interpose [:br {}] (str/split-lines p)))))
 
 (defn- cut
-  "The text `s` cut back to the end of a word within `n` characters."
+  "The text `s` cut back to the end of a word within `n` characters, which
+  is empty when its first word is longer. A word is never cut, so neither
+  is a character of two UTF-16 units, e.g. an emoji."
   [s n]
   (let [head (subs s 0 n)]
     (if (re-find #"^\s" (subs s n))
       (str/trimr head)
-      (str/replace head #"\s+\S*$" ""))))
+      (str/replace head #"(^|\s+)\S*$" ""))))
+
+(defn- blank?
+  "Whether the Hiccup `nodes` have no text but whitespace."
+  [nodes]
+  (every? #(if (string? %) (str/blank? %) (blank? (drop 2 %))) nodes))
 
 (defn- cut-nodes
-  "The Hiccup `nodes` with `n` characters of text at most, as a pair of the
-  nodes and the number of characters left, which is negative once a text
-  has been cut, and then ends in an ellipsis."
+  "The Hiccup `nodes` with `n` characters of text at most, in whole words,
+  as a pair of the nodes and the number of characters left, which is
+  negative once a text has been cut. Whitespace alone doesn't count, and
+  an element whose text is cut away is left out."
   [nodes n]
   (reduce (fn [[kept left] node]
             (cond
@@ -280,21 +288,38 @@
               (vector? node)
               (let [[tag attrs & children] node
                     [kids left]            (cut-nodes children left)]
-                [(conj kept (into [tag attrs] kids)) left])
+                [(cond-> kept
+                   (not (and (neg? left) (blank? kids)))
+                   (conj (into [tag attrs] kids)))
+                 left])
 
-              (<= (count node) left)
-              [(conj kept node) (- left (count node))]
+              (or (str/blank? node) (<= (count node) left))
+              [(conj kept node) (cond-> left
+                                  (not (str/blank? node)) (- (count node)))]
 
               :else
-              [(conj kept (str (cut node left) "…")) -1]))
+              (let [s (cut node left)]
+                [(cond-> kept (seq s) (conj s)) -1])))
           [[] n]
           nodes))
 
+(defn- ellipsis
+  "The Hiccup `nodes` with an ellipsis after their last text."
+  [nodes]
+  (if-let [i (last (keep-indexed #(when-not (blank? [%2]) %1) nodes))]
+    (update nodes i (fn [node]
+                      (if (string? node)
+                        (str (str/trimr node) "…")
+                        (let [[tag attrs & children] node]
+                          (into [tag attrs] (ellipsis (vec children)))))))
+    (conj nodes "…")))
+
 (defn- excerpt
-  "The Hiccup `nodes` cut back to `n` characters of text, with an ellipsis
-  where a text was cut."
+  "The Hiccup `nodes` cut back to `n` characters of text, in whole words,
+  with an ellipsis after the last text when some was cut."
   [nodes n]
-  (seq (first (cut-nodes nodes n))))
+  (let [[kept left] (cut-nodes nodes n)]
+    (seq (cond-> kept (neg? left) ellipsis))))
 
 ;; Webmention 4.1: what's shown of a source is sanitized
 (defn- content

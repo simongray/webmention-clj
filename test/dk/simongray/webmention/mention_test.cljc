@@ -154,9 +154,15 @@
            (excerpt "<p>One two three four</p><p>five</p>" 9))
         "cut back to the end of a word")
     (is (= "One two…" (:text (excerpt "<p>One two three four</p>" 7))) "or at the end of one")
-    (is (= {:text "Nice post…" :hiccup '([:p {} "Nice " [:a {:href "https://them.example/x" :rel "nofollow ugc"} "post"] "…"])}
+    (is (= {:text "Nice post…" :hiccup '([:p {} "Nice " [:a {:href "https://them.example/x" :rel "nofollow ugc"} "post…"]])}
            (excerpt "<p>Nice <a href=/x>post</a> indeed, very nice</p>" 12))
-        "across elements")
+        "across elements, with the ellipsis after the last text")
+    (is (= {:text "Hello…" :hiccup '([:p {} "Hello…"])}
+           (excerpt "<p>Hello <b>wonderful</b> world</p>" 10))
+        "never in the middle of a word that starts an element")
+    (is (= "One.\n\nTwo.…" (:text (excerpt "<p>One.</p>\n\n<p>Two.</p>\n\n<p>Three.</p>" 8)))
+        "the whitespace between paragraphs not counted, and the ellipsis inside the last")
+    (is (= "Hi…" (:text (excerpt "<p>Hi there😀😀</p>" 9))) "never in the middle of an emoji")
     (is (= "One.\n\nTwo." (:text (excerpt "<p>One.</p><p>Two.</p>" 8)))
         "the breaks between paragraphs not counted, and no ellipsis when it all fits")))
 
