@@ -2,9 +2,10 @@ Notes for the sibling libraries
 ===============================
 
 What webmention-clj needed from wary-fetch, html-pieces and
-microformats-clj, what it did instead, and what they could offer. The
-code that each note mentions is in webmention-clj, unless the note says
-otherwise.
+microformats-clj, what it did instead, and what they could offer. A note
+whose need a release has met says what it offered, and what webmention-clj
+uses now. The code that each note mentions is in webmention-clj, unless
+the note says otherwise.
 
 
 1. Endpoint discovery
@@ -16,26 +17,16 @@ document order, resolved against the URL after the redirects and the
 page's base. IndieAuth, Micropub and WebSub discover their endpoints in
 the same way, by other relation types and elements: WebSub reads only
 the link elements in the head of a page, and IndieAuth only link
-elements. The websub-clj library has its own version, and indieauth-clj
-is getting one too.
+elements.
 
-**Did.** The namespace `dk.simongray.webmention.discovery` has nothing
-particular to Webmention: `header-urls` reads the URLs of a relation type
-from the Link headers, by `headers/links` of wary-fetch, and `page-urls`
-those of a page's elements of the given tags. The `discover` function of
-`dk.simongray.webmention` takes the first of either. The `:rels` of
-microformats-clj have the URLs of a page in document order too, but they
-take `<area>` as well, and they come with a parse of all the page's
-microformats.
+**Offered.** The `html/links` of html-pieces 0.4.0, by a link type, the
+tags that count and the head alone, which `sender/page-endpoint` uses.
+The Link headers are still read by `header-urls` in the namespace
+`dk.simongray.webmention.discovery`, by `headers/links` of wary-fetch.
 
-**Could offer.** A function of microformats-clj that gives the URLs of a
-relation type in a page's tree, by tags and perhaps by the head alone,
-without the rest of the parse. Rels are its business, and it already
-reads a page with html-pieces and resolves URLs by the URL Standard.
-The Link headers could be given to it as the maps that
-`headers/links` gives, so that it needn't depend on wary-fetch, and the
-discovery of each protocol would be a line or two: the headers first,
-and then the page.
+**Could offer.** The URLs of a relation type in the Link headers, beside
+`headers/links` in wary-fetch, so that each protocol's discovery is the
+headers first and then `html/links`.
 
 
 2. A POST that follows only 307 and 308
@@ -83,8 +74,9 @@ follows the URL Standard on the JVM.
 **Needed.** A Link header of `<>; rel=webmention`, which names the URL
 of the response itself, as an empty href does in a page.
 
-**Did.** Nothing. The `headers/links` of wary-fetch leaves out a link
-whose target is empty, and no test of webmention.rocks has one.
+**Did.** Nothing. The `headers/links` of wary-fetch 0.3.0 still leaves
+out a link whose target is empty, and no test of webmention.rocks has
+one.
 
 **Could offer.** A link with an empty `:href` for `<>` from wary-fetch,
 as RFC 8288 allows a URI reference to be empty.
@@ -97,13 +89,10 @@ as RFC 8288 allows a URI reference to be empty.
 from the `:form-params` of a Ring request or else from a body of limited
 size in UTF-8, and answers in plain text.
 
-**Did.** The namespace `dk.simongray.webmention.ring` is a copy of that
-of websub-clj, with UTF-8 functions of its own, since the bytes namespace
-of wary-fetch isn't public and has no decode.
-
-**Could offer.** The body of a Ring request within a limit, and the
-fields of a form, from wary-fetch if they fit beside the Ring handler of
-its proxy, so that websub-clj and webmention-clj share them.
+**Offered.** The `bytes/encode`, `bytes/decode` and `url/query-pairs` of
+wary-fetch 0.3.0, which the namespace `dk.simongray.webmention.ring` now
+uses. Ring helpers themselves stay out of wary-fetch, as Simon decided,
+so the rest of that namespace is a copy of websub-clj's.
 
 
 6. The URLs in a page's attributes
@@ -130,30 +119,24 @@ the value of an attribute.
 content of a template, as microformats-clj needed too (note 6 of its
 notes for html-pieces).
 
-**Did.** The function `page/elements` walks the tree with `tree-seq` and
-skips templates.
-
-**Could offer.** The public functions for reading the tree that
-microformats-clj asks of html-pieces.
+**Offered.** The `html/elements` and `html/base-url` of html-pieces
+0.4.0, which `page/parse` uses on the tree it has parsed. They parse
+the Hiccup again, which copies it, at a cost of a few milliseconds a
+page.
 
 
 8. Representative h-card and authorship
 ---------------------------------------
 
 **Needed.** The author of a mention, by the authorship algorithm, and the
-representative h-card of the author's page. The README of
-microformats-clj leaves both out, as specs of their own. IndieAuth needs
-the representative h-card too, for the profile of someone who signs in.
+representative h-card of the author's page. IndieAuth needs the
+representative h-card too, for the profile of someone who signs in.
 
-**Did.** The namespace `dk.simongray.webmention.mention` has
-`representative-card`, a function of a page's parsed microformats and
-its URL, and `author!`, which fetches the author's page. The steps of
-both that read a page are in `dk.simongray.webmention.authorship`.
-
-**Could offer.** In microformats-clj, `representative-card` and the
-steps of the authorship algorithm that read a page, which give either
-the author or the URL of the author's page to fetch, so that the fetch
-stays with the caller.
+**Offered.** The `mf/representative-card`, `mf/author` and
+`mf/author-card` of microformats-clj 0.2.0, with the fetch of the
+author's page left to the caller. The `representative-card` and `author!`
+of `dk.simongray.webmention.mention` use them, and make each h-card a map
+of its `:name`, `:url` and `:photo`.
 
 
 9. Microformats in document order
@@ -162,13 +145,8 @@ stays with the caller.
 **Needed.** The first h-card of a page, as representative h-card parsing
 and the authorship algorithm have it, among the h-cards at any depth.
 
-**Did.** A walk of each item, the items in its properties and then its
-children. The properties of an item are a map, so the walk doesn't know
-which of them comes first in the page, and the first h-card is only
-nearly the first in document order.
-
-**Could offer.** Every microformat of a page in document order, from
-microformats-clj, whose parser knows the order while it walks the page.
+**Offered.** The `mf/items` of microformats-clj 0.2.0, in exact document
+order, which its parser now records.
 
 
 10. Reading a parsed item
@@ -178,26 +156,21 @@ microformats-clj, whose parser knows the order while it walks the page.
 embedded item, the URLs of a property, the url of an embedded h-cite
 among them, and the items of a type at any depth.
 
-**Did.** The namespace `dk.simongray.webmention.items`, much as
-indieblog had its functions.
-
-**Could offer.** A few functions in microformats-clj for reading the
-items that `mf/parse` gives.
+**Offered.** The `mf/value`, `mf/property`, `mf/urls` and `mf/items` of
+microformats-clj 0.2.0. The namespace `dk.simongray.webmention.items`
+keeps what's particular to showing a mention: URLs kept to http and
+https, an h-card as a map, and the answer of an RSVP.
 
 
 11. Plain text as Hiccup
 ------------------------
 
 **Needed.** The Hiccup of a p-summary, which is plain text and can hold a
-`<`. The `hiccup` of html-pieces reads a string with a tag in it as HTML,
-so `"Use <b> for bold."` gives `("Use " [:b {} " for bold."])`.
+`<`. The `hiccup` of html-pieces read a string with a tag in it as HTML,
+so `"Use <b> for bold."` gave `("Use " [:b {} " for bold."])`.
 
-**Did.** The text is made into Hiccup of paragraphs and line breaks
-first, which `hiccup` takes as text.
-
-**Could offer.** An option of html-pieces that reads a string as plain
-text whatever it holds, or its function for paragraphs, which is
-private.
+**Offered.** The `:plain-text?` option of html-pieces 0.4.0, which
+`content/sanitized` gives for a string.
 
 
 12. A body cut at its limit
@@ -208,9 +181,6 @@ private.
 downloads, not refuse a large one, and the Link header of a large target
 names its endpoint before its body begins.
 
-**Did.** Nothing. The `fetch!` of wary-fetch fails with `::too-large`
-when a body is over the limit, so a large target gives `:failed`, and so
-does a large source, whose update or deletion then goes unnoticed.
-
-**Could offer.** An option of wary-fetch that gives the body cut at the
-limit, with a flag that says it was cut, rather than failing.
+**Offered.** The `:truncate?` option of wary-fetch 0.3.0, which
+`default-options` sets. A source that's cut is `:failed` rather than
+`:unlinked` when its start doesn't link the target.
