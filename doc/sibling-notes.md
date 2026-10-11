@@ -198,3 +198,19 @@ first, which `hiccup` takes as text.
 **Could offer.** An option of html-pieces that reads a string as plain
 text whatever it holds, or its function for paragraphs, which is
 private.
+
+
+12. A body cut at its limit
+---------------------------
+
+**Needed.** The start of a target or a source that's larger than
+`:max-bytes`. Webmention 4.2 has a receiver limit how much of a source it
+downloads, not refuse a large one, and the Link header of a large target
+names its endpoint before its body begins.
+
+**Did.** Nothing. The `fetch!` of wary-fetch fails with `::too-large`
+when a body is over the limit, so a large target gives `:failed`, and so
+does a large source, whose update or deletion then goes unnoticed.
+
+**Could offer.** An option of wary-fetch that gives the body cut at the
+limit, with a flag that says it was cut, rather than failing.

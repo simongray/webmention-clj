@@ -74,7 +74,7 @@
   it. The first Link header with rel=webmention counts first, and then the
   first link or a element of an HTML page, in document order. A relative
   URL counts from the URL of the response, after its redirects, and an
-  empty one is that URL itself."
+  empty href is that URL itself."
   [{:keys [url headers] :as response}]
   (let [endpoint (or (first (discovery/header-urls headers url "webmention"))
                      (sender/page-endpoint response))]
