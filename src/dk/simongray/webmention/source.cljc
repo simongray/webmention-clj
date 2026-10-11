@@ -2,12 +2,11 @@
   "The document at the source of a Webmention: what kind it is, whether it
   links the target, and whether it says that it's gone."
   (:require [clojure.string :as str]
-            #?(:clj [clojure.data.json :as json])
             [dk.simongray.html-pieces :as html]
             [dk.simongray.html-pieces.url :as url]
             [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.webmention.page :as page])
-  #?(:clj (:import [java.io PushbackReader StringReader])))
+            [dk.simongray.wary-fetch.json :as json]
+            [dk.simongray.webmention.page :as page]))
 
 ;; RFC 9110, section 8.3: a document without a media type can be
 ;; examined; RFC 6839, section 3.1: the +json and +xml suffixes
@@ -63,25 +62,12 @@
   (let [t (normalized target)]
     (boolean (some #{t} (page/attribute-urls elements base)))))
 
-(defn- json-data
-  "The data of `s`, a JSON text and nothing more, as JSON.parse reads it."
-  [s]
-  #?(:clj  (let [r (PushbackReader. (StringReader. s) 64)
-                 x (json/read r)]
-             (if (str/blank? (slurp r))
-               x
-               (throw (ex-info "There's more than JSON in the text" {}))))
-     :cljs (js->clj (js/JSON.parse s))))
-
 (defn- json-values
   "The values of the JSON `s` at any depth, the keys of its objects left
-  out, or nil when `s` isn't JSON."
+  out, or nil when `s` isn't JSON or is nested too deep."
   [s]
-  (try
-    (into [] (tree-seq coll? #(if (map? %) (vals %) (seq %)) (json-data s)))
-    ;; a StackOverflowError too, of JSON that's nested too deep
-    (catch #?(:clj Throwable :cljs :default) _
-      nil)))
+  (some->> (json/read-json s {:key-fn identity})
+           (tree-seq coll? #(if (map? %) (vals %) (seq %)))))
 
 ;; Webmention 3.2.2
 (defn json-links?
