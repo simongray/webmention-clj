@@ -12,13 +12,6 @@
   "The options of mention/summary that aren't those of html-pieces."
   [:max-length :any-name? :page-title?])
 
-(defn- paragraphs
-  "The plain text `s` as Hiccup: a paragraph for each part between blank
-  lines, with a line break at each line."
-  [s]
-  (for [p (str/split (str/trim s) #"\n\s*\n")]
-    (into [:p {}] (interpose [:br {}] (str/split-lines p)))))
-
 (defn- cut
   "The text `s` cut back to the end of a word within `n` characters, which
   is empty when its first word is longer. A word is never cut, so neither
@@ -91,10 +84,11 @@
   (when-let [v (some #(first (get-in item [:properties %]))
                      [:content :summary])]
     (let [x      (if (map? v) (:hiccup v (:value v)) v)
-          hiccup (cond-> (html/hiccup (if (string? x) (paragraphs x) x)
-                                      (merge {:base-url   base
-                                              :shorthand? false}
-                                             (apply dissoc opts option-keys)))
+          ;; the text of a p- property is text, even when it holds a <
+          hiccup (cond-> (html/hiccup x (merge {:base-url    base
+                                                :shorthand?  false
+                                                :plain-text? (string? x)}
+                                               (apply dissoc opts option-keys)))
                    max-length (excerpt max-length))
           text   (html/text hiccup)]
       (when-not (str/blank? text)
