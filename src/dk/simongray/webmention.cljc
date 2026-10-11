@@ -7,19 +7,23 @@
   https://www.w3.org/TR/webmention/ and cites its sections, with the
   erratum that the editor's draft at https://webmention.net/draft/ fixes.
   A receiver is a server with a public URL, since a sender posts to its
-  endpoint. What a receiver shows of a mention is read from its source by
-  dk.simongray.webmention.mention."
+  endpoint. What you need to show a mention is read from its source by
+  dk.simongray.webmention.mention.
+
+  The steps behind these functions are in dk.simongray.webmention.sender
+  and dk.simongray.webmention.receiver, after the two roles of the
+  standard, and aren't part of the API."
   (:require [clojure.string :as str]
-            [dk.simongray.html-pieces.url :as whatwg]
-            [dk.simongray.microformats :as mf]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.webmention.discovery :as discovery]
             [dk.simongray.webmention.page :as page]
+            [dk.simongray.webmention.receiver :as receiver]
             [dk.simongray.webmention.ring :as ring]
-            [dk.simongray.webmention.source :as source]))
+            [dk.simongray.webmention.sender :as sender]))
+
+;;; Options
 
 ;; Webmention 3.1.2: a User-Agent that says what the request is for
 (def user-agent
@@ -61,17 +65,6 @@
 
 ;;; Sending
 
-(defn- page-endpoint
-  "The endpoint that the first link or a element with rel=webmention names
-  on the HTML page in the `response`, or nil."
-  [{:keys [url body] :as response}]
-  (when (= :html (source/kind response))
-    ;; against the base element of the page too, as a browser resolves an
-    ;; href, a choice of our own where Webmention 3.1.2 names the target's
-    ;; URL
-    (let [{:keys [elements base]} (page/parse (str body) url)]
-      (first (discovery/page-urls elements base "webmention" #{:link :a})))))
-
 ;; Webmention 3.1.2
 (defn discover
   "The Webmention endpoint that the `response` to a request for a target
@@ -84,14 +77,15 @@
   empty one is that URL itself."
   [{:keys [url headers] :as response}]
   (let [endpoint (or (first (discovery/header-urls headers url "webmention"))
-                     (page-endpoint response))]
+                     (sender/page-endpoint response))]
     (when (url/web-url? endpoint)
       endpoint)))
 
 (defn discover!
   "Fetch the `target` with `opts`, and give the :status of the response
   and the :endpoint that discover finds in it, if any. A request that
-  fails gives the :error as http/failure has it.
+  fails, or a target that isn't an http or https URL, gives the :error as
+  http/failure has it.
 
   The :not-before of the response, when it has one, is the time until
   which the endpoint can be kept, as Webmention 5.3 has it. The `opts` are
@@ -101,7 +95,10 @@
   ([target opts]
    (let [opts (merge default-options opts)]
      (async/then
-      (async/attempt #(http/fetch! target opts))
+      (async/attempt #(if (url/web-url? target)
+                        (http/fetch! target opts)
+                        (throw (ex-info "The target is not an http or https URL"
+                                        {:target target}))))
       (fn [{:keys [value error]}]
         (if error
           {:error (http/failure error)}
@@ -127,79 +124,6 @@
    :headers {"Content-Type" "application/x-www-form-urlencoded"}
    :body    (url/query-string [["source" source] ["target" target]])})
 
-(defn- location
-  "The URL in the Location header of the `response` to a request for
-  `url`, resolved against it, or nil."
-  [url {:keys [headers] :as response}]
-  (some->> (headers/header headers "location") (whatwg/resolve url)))
-
-;; Issue 89 of the spec, https://github.com/w3c/webmention/issues/89: only
-;; a 307 or a 308 sends a POST on, since a client turns a POST into a GET
-;; after a 301, 302 or 303
-(defn- redirect
-  "The http or https URL that a 307 or a 308 `response` to a POST to `url`
-  sends it on to, but never from https to http, or nil."
-  [url {:keys [status] :as response}]
-  (when (#{307 308} status)
-    (let [to (location url response)]
-      (when (and (url/web-url? to)
-                 (not= ["https" "http"] (map url/scheme [url to])))
-        to))))
-
-(defn- post!
-  "Send the `request` with `send`, and on to the endpoint that a 307 or a
-  308 names, `n` times at most."
-  [send request n]
-  (async/then
-   (send (assoc request :max-redirects 0))
-   (fn [response]
-     (if-let [to (and (pos? n) (redirect (:url request) response))]
-       (post! send (assoc request :url to) (dec n))
-       response))))
-
-(defn- message
-  "The start of the text `body` of an answer, or nil."
-  [body]
-  (when (string? body)
-    (not-empty (subs body 0 (min 200 (count body))))))
-
-;; Webmention 3.1.3: any 2xx is a success, and a 201 names a status page
-(defn- answered
-  "The `report` of a Webmention with the endpoint's answer in the
-  `response`."
-  [report {:keys [status body url] :as response}]
-  (let [sent?       (<= 200 status 299)
-        status-page (when (= 201 status) (location url response))
-        text        (when-not sent? (message body))]
-    (cond-> (assoc report :outcome (if sent? :sent :failed) :status status)
-      status-page (assoc :location status-page)
-      text        (assoc :message text))))
-
-(defn- post-to!
-  "Post the Webmention of the `report` to its :endpoint by `opts`, and give
-  the report with the answer."
-  [{:keys [endpoint source target] :as report}
-   {:keys [send max-redirects] :as opts}]
-  (async/then
-   (async/attempt #(post! send
-                          (http/with-options (request endpoint source target)
-                                             opts)
-                          max-redirects))
-   (fn [{:keys [value error]}]
-     (if error
-       (assoc report :outcome :failed :error (http/failure error))
-       (answered report value)))))
-
-(defn- endpoint!
-  "The :endpoint of `opts`, or else what discover! finds of the `target`,
-  or an :error when it isn't an http or https URL."
-  [target opts]
-  (cond
-    (:endpoint opts)      (select-keys opts [:endpoint])
-    (url/web-url? target) (discover! target opts)
-    :else                 {:error {:reason (str "The target is not an http "
-                                                "or https URL")}}))
-
 (defn send!
   "Tell the Webmention endpoint of the `target` that the page at `source`
   links to it, with `opts`, and give the report of the :outcome.
@@ -224,13 +148,17 @@
      (throw (ex-info "The source is an http or https URL" {:source source})))
    (let [opts (merge default-options opts)]
      (async/then
-      (endpoint! target opts)
+      (if (:endpoint opts)
+        (select-keys opts [:endpoint])
+        (discover! target opts))
       (fn [{:keys [endpoint error not-before]}]
         (let [report (cond-> {:source source :target target}
                        not-before (assoc :not-before not-before))]
           (cond
             error    (assoc report :outcome :failed :error error)
-            endpoint (post-to! (assoc report :endpoint endpoint) opts)
+            endpoint (sender/post! (request endpoint source target)
+                                   (assoc report :endpoint endpoint)
+                                   opts)
             :else    (assoc report :outcome :no-endpoint))))))))
 
 ;; Webmention 3.1.4 and 3.1.5
@@ -262,50 +190,7 @@
     (into [] (comp (filter url/web-url?) (distinct))
           (page/hyperlinks elements base))))
 
-;;; Verifying
-
-(defn- examined-page
-  "What the HTML `s` of the source at `url` says of the `target`, by `opts`:
-  an :outcome, and for a verified page its :mf2 and the :title of its
-  title element, if it has one."
-  [s url target opts]
-  (let [{:keys [nodes elements base]} (page/parse s url)]
-    (cond
-      (= 410 (source/status elements))
-      {:outcome :gone}
-
-      (source/html-links? elements base target)
-      (let [title (page/title elements)]
-        (cond-> {:outcome :verified
-                 :mf2     (mf/parse nodes url
-                                    (select-keys opts [:proposed-backcompat?]))}
-          title (assoc :title title)))
-
-      :else
-      {:outcome :unlinked})))
-
-(defn- examined
-  "What the document of the 2xx `response` for a source says of the
-  `target`, by `opts`, as examined-page has it."
-  [target {:keys [url body] :as response} opts]
-  (let [s       (str body)
-        outcome #(if % :verified :unlinked)]
-    (case (source/kind response)
-      :html (examined-page s url target opts)
-      :json {:outcome (outcome (source/json-links? s target))}
-      :text {:outcome (outcome (str/includes? s target))}
-      {:outcome :unlinked})))
-
-;; Webmention 3.2.4: a 410, or a source without the link, is a deletion
-(defn- verification
-  "The report of the `job` by the `response` to the request for its
-  source, by `opts`."
-  [{:keys [target] :as job} {:keys [status url] :as response} opts]
-  (let [report (assoc job :status status :url url)]
-    (cond
-      (= 410 status)      (assoc report :outcome :gone)
-      (<= 200 status 299) (merge report (examined target response opts))
-      :else               (assoc report :outcome :failed))))
+;;; Receiving
 
 ;; Webmention 3.2.2 and 4.2
 (defn verify!
@@ -338,75 +223,11 @@
      (async/then
       (async/attempt #(async/then (http/fetch! source opts)
                                   (fn [response]
-                                    (verification job response opts))))
+                                    (receiver/verification job response
+                                                           opts))))
       (fn [{:keys [value error]}]
         (or value
             (assoc job :outcome :failed :error (http/failure error))))))))
-
-;;; Receiving
-
-;; Webmention 3.2.1
-(defn- problem
-  "What's wrong with a Webmention from `source` to `target`, by the
-  :target-pred of `opts`, or nil."
-  [source target {:keys [target-pred] :as opts}]
-  (cond
-    (not (url/web-url? source))
-    "The source must be an http or https URL"
-
-    (not (url/web-url? target))
-    "The target must be an http or https URL"
-
-    (source/same-url? source target)
-    "The source and the target must be different URLs"
-
-    ;; the fragment counts for nothing
-    (not (target-pred (source/without-fragment target)))
-    "The target doesn't take Webmentions"))
-
-;; Webmention 3.2 and 3.2.3: 200 once the source is verified, and else
-;; 400, since the source is the sender's
-(defn- verified
-  "The endpoint's answer to a Webmention that it verified at once, by the
-  `report` of the verification."
-  [{:keys [outcome] :as report}]
-  (case outcome
-    :verified (ring/response 200 "The source links the target")
-    :unlinked (ring/response 400 "The source doesn't link the target")
-    :gone     (ring/response 400 "The source is gone")
-    (ring/response 400 "The source can't be fetched")))
-
-;; Webmention 3.2: 202 for a Webmention that's verified later, or 201 with
-;; the URL of a page that tells how it fares
-(defn- accepted
-  "The endpoint's answer to a Webmention whose `job` went to :schedule!, by
-  the :status-url-fn of `opts`."
-  [job {:keys [status-url-fn] :as opts}]
-  (if status-url-fn
-    (assoc-in (ring/response 201 "The Webmention is accepted")
-              [:headers "Location"]
-              (status-url-fn job))
-    (ring/response 202 "The Webmention is accepted")))
-
-(defn- answer
-  "The endpoint's answer to the POST `request`, by `opts`, once the job of
-  a Webmention that it takes has gone to :schedule!, or has been verified
-  and its report has gone to :report!."
-  [{:keys [schedule! report! max-form-bytes] :as opts} request]
-  (let [fields (ring/form-fields request max-form-bytes)
-        source (ring/field fields "source")
-        target (ring/field fields "target")
-        reason (problem source target opts)
-        job    {:source source :target target}]
-    (cond
-      (nil? fields) (ring/response 413 "The request is too large")
-      reason        (ring/response 400 reason)
-      report!       (async/then (verify! job opts)
-                                (fn [report]
-                                  (report! report)
-                                  (verified report)))
-      :else         (do (schedule! job)
-                        (accepted job opts)))))
 
 (defn handler
   "A Ring handler for a Webmention endpoint, by `opts`:
@@ -443,10 +264,15 @@
   (let [opts (merge default-options opts)]
     (ring/handler
      (fn [request]
-       (if (= :post (:request-method request))
-         (answer opts request)
-         ;; RFC 9110, section 15.5.6
-         (assoc-in (ring/response 405 "") [:headers "Allow"] "POST"))))))
+       (let [{:keys [job rejection]} (receiver/received request opts)]
+         (cond
+           rejection rejection
+           report!   (async/then (verify! job opts)
+                                 (fn [report]
+                                   (report! report)
+                                   (receiver/verified report)))
+           :else     (do (schedule! job)
+                         (receiver/accepted job opts))))))))
 
 (comment
   (discover {:url     "https://example.com/post"
