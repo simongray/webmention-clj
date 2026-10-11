@@ -7,6 +7,7 @@
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.webmention :as wm]
+            [dk.simongray.webmention.mention :as mention]
             [dk.simongray.webmention.test-support :as support :refer [with-server]]))
 
 (def anywhere
@@ -148,10 +149,17 @@
             (let [[report & more] (run-jobs! jobs)]
               (is (nil? more))
               (is (= {:source source :target target :status 200 :url source :outcome :verified} report))))
-          (testing "its microformats"
+          (testing "its microformats, its summary and its author"
+            (swap! pages assoc
+                   "/notes/1" (reply (str "<a class=u-author href=/jane>Jane</a> thinks it's a nice "
+                                          "<a class=u-in-reply-to href=/posts/hello>post</a>"))
+                   "/jane"    (html "<p class=h-card><a class='p-name u-url u-uid' href=/jane>Jane Doe</a></p>"))
             (wm/send! source target anywhere)
-            (let [[{:keys [mf2]}] (map #(wm/verify! % anywhere) (first (reset-vals! jobs [])))]
-              (is (= [target] (get-in mf2 [:items 0 :properties :in-reply-to])))))
+            (let [[report] (map #(wm/verify! % anywhere) (first (reset-vals! jobs [])))]
+              (is (= [target] (get-in report [:mf2 :items 0 :properties :in-reply-to])))
+              (is (= {:kind :reply :author {:url (str url "/jane")} :url source}
+                     (select-keys (mention/summary report) [:kind :author :url])))
+              (is (= {:name "Jane Doe" :url (str url "/jane")} (mention/author! report anywhere)))))
           (testing "an update that removes the link"
             (swap! pages assoc "/notes/1" (reply "Never mind"))
             (send!)

@@ -7,7 +7,8 @@
   https://www.w3.org/TR/webmention/ and cites its sections, with the
   erratum that the editor's draft at https://webmention.net/draft/ fixes.
   A receiver is a server with a public URL, since a sender posts to its
-  endpoint."
+  endpoint. What a receiver shows of a mention is read from its source by
+  dk.simongray.webmention.mention."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces.url :as whatwg]
             [dk.simongray.microformats :as mf]
