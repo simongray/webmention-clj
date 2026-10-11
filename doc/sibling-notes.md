@@ -16,8 +16,8 @@ document order, resolved against the URL after the redirects and the
 page's base. IndieAuth, Micropub and WebSub discover their endpoints in
 the same way, by other relation types and elements: WebSub reads only
 the link elements in the head of a page, and IndieAuth only link
-elements. websub-clj has its own version, and indieauth-clj is writing
-one too.
+elements. The websub-clj library has its own version, and indieauth-clj
+is getting one too.
 
 **Did.** The namespace `dk.simongray.webmention.discovery` has nothing
 particular to Webmention: `header-urls` reads the URLs of a relation type
@@ -28,11 +28,11 @@ microformats-clj have the URLs of a page in document order too, but they
 take `<area>` as well, and they come with a parse of all the page's
 microformats.
 
-**Could offer.** microformats-clj, since rels are its business and it
-already reads a page with html-pieces and resolves URLs by the URL
-Standard: a function of a page's tree that gives the URLs of a relation
-type, by tags and perhaps by the head alone, without the rest of the
-parse. The Link headers could be given to it as the maps that
+**Could offer.** A function of microformats-clj that gives the URLs of a
+relation type in a page's tree, by tags and perhaps by the head alone,
+without the rest of the parse. Rels are its business, and it already
+reads a page with html-pieces and resolves URLs by the URL Standard.
+The Link headers could be given to it as the maps that
 `headers/links` gives, so that it needn't depend on wary-fetch, and the
 discovery of each protocol would be a line or two: the headers first,
 and then the page.
@@ -51,7 +51,7 @@ and 308, which keep the method and the body.
 it on by hand, never from https to http. That's the `send-on!` of
 websub-clj again, which follows a hub's redirects in the same way.
 
-**Could offer.** wary-fetch: an option of a request that follows only
+**Could offer.** An option of a request in wary-fetch that follows only
 the redirects that keep its method and body, and gives any other
 redirect as the response.
 
@@ -80,13 +80,13 @@ follows the URL Standard on the JVM.
 4. A Link header with an empty target
 -------------------------------------
 
-**Needed.** `<>; rel=webmention`, which names the URL of the response
-itself, as an empty href does in a page.
+**Needed.** A Link header of `<>; rel=webmention`, which names the URL
+of the response itself, as an empty href does in a page.
 
 **Did.** Nothing. The `headers/links` of wary-fetch leaves out a link
 whose target is empty, and no test of webmention.rocks has one.
 
-**Could offer.** wary-fetch: read `<>` as a link with an empty `:href`,
+**Could offer.** A link with an empty `:href` for `<>` from wary-fetch,
 as RFC 8288 allows a URI reference to be empty.
 
 
@@ -101,9 +101,9 @@ size in UTF-8, and answers in plain text.
 of websub-clj, with UTF-8 functions of its own, since the bytes namespace
 of wary-fetch isn't public and has no decode.
 
-**Could offer.** wary-fetch, if it fits beside the Ring handler of its
-proxy: the body of a Ring request within a limit, and the fields of a
-form, so that websub-clj and webmention-clj share them.
+**Could offer.** The body of a Ring request within a limit, and the
+fields of a form, from wary-fetch if they fit beside the Ring handler of
+its proxy, so that websub-clj and webmention-clj share them.
 
 
 6. The URLs in a page's attributes
@@ -113,13 +113,14 @@ form, so that websub-clj and webmention-clj share them.
 the target can be the href of an a, the src of an img or one candidate of
 a srcset, as issue 91 of the Webmention spec says.
 
-**Did.** `page/attribute-urls` takes the tables `url-attributes` and
-`url-list-attributes` of html-pieces, and splits a srcset and the other
-lists itself, since the `checked-list` of html-pieces isn't public and
-drops a list whole when one URL in it isn't allowed.
+**Did.** The function `page/attribute-urls` takes the tables
+`url-attributes` and `url-list-attributes` of html-pieces, and splits a
+srcset and the other lists itself, since the `checked-list` of
+html-pieces isn't public and drops a list whole when one URL in it isn't
+allowed.
 
-**Could offer.** html-pieces: a public function of an attribute and its
-value that gives the URLs in it.
+**Could offer.** A public function of html-pieces that gives the URLs in
+the value of an attribute.
 
 
 7. Walking a page
@@ -129,10 +130,11 @@ value that gives the URLs in it.
 content of a template, as microformats-clj needed too (note 6 of its
 notes for html-pieces).
 
-**Did.** `page/elements`, a `tree-seq` that skips templates.
+**Did.** The function `page/elements` walks the tree with `tree-seq` and
+skips templates.
 
-**Could offer.** html-pieces: the same public functions for reading the
-tree that microformats-clj asks for.
+**Could offer.** The public functions for reading the tree that
+microformats-clj asks of html-pieces.
 
 
 8. Representative h-card and authorship
@@ -143,15 +145,15 @@ representative h-card of the author's page. The README of
 microformats-clj leaves both out, as specs of their own. IndieAuth needs
 the representative h-card too, for the profile of someone who signs in.
 
-**Did.** `dk.simongray.webmention.mention` has `representative-card`, a
-function of a page's parsed microformats and its URL, and the steps of
-the authorship algorithm that read a page. Its `author!` fetches the
-author's page.
+**Did.** The namespace `dk.simongray.webmention.mention` has
+`representative-card`, a function of a page's parsed microformats and
+its URL, and the steps of the authorship algorithm that read a page. Its
+`author!` fetches the author's page.
 
-**Could offer.** microformats-clj: `representative-card`, and the steps
-of the authorship algorithm that read a page, which give either the
-author or the URL of the author's page to fetch, so that the fetch stays
-with the caller.
+**Could offer.** In microformats-clj, `representative-card` and the
+steps of the authorship algorithm that read a page, which give either
+the author or the URL of the author's page to fetch, so that the fetch
+stays with the caller.
 
 
 9. Microformats in document order
@@ -165,8 +167,8 @@ children. The properties of an item are a map, so the walk doesn't know
 which of them comes first in the page, and the first h-card is only
 nearly the first in document order.
 
-**Could offer.** microformats-clj: every microformat of a page in
-document order, which its parser knows while it walks the page.
+**Could offer.** Every microformat of a page in document order, from
+microformats-clj, whose parser knows the order while it walks the page.
 
 
 10. Reading a parsed item
@@ -179,8 +181,8 @@ among them, and the items of a type at any depth.
 **Did.** Private functions in `dk.simongray.webmention.mention`, much as
 indieblog had them.
 
-**Could offer.** microformats-clj: a few functions for reading the items
-that `mf/parse` gives.
+**Could offer.** A few functions in microformats-clj for reading the
+items that `mf/parse` gives.
 
 
 11. Plain text as Hiccup
@@ -193,6 +195,6 @@ so `"Use <b> for bold."` gives `("Use " [:b {} " for bold."])`.
 **Did.** The text is made into Hiccup of paragraphs and line breaks
 first, which `hiccup` takes as text.
 
-**Could offer.** html-pieces: an option that reads a string as plain
+**Could offer.** An option of html-pieces that reads a string as plain
 text whatever it holds, or its function for paragraphs, which is
 private.

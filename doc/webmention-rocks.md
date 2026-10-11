@@ -1,8 +1,8 @@
 The tests of webmention.rocks
 =============================
 
-[webmention.rocks](https://webmention.rocks) tests senders and receivers
-against the site itself. CI runs none of them, since it shouldn't depend
+The site [webmention.rocks](https://webmention.rocks) tests senders and
+receivers against itself. CI runs none of them, since it shouldn't depend
 on the network, but the end-to-end tests run their scenarios on
 localhost.
 
