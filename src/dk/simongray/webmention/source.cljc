@@ -42,15 +42,16 @@
   [s]
   (or (url/resolve nil s) s))
 
-(defn same-url?
-  "Whether the URLs `a` and `b` are the same once they're normalized."
-  [a b]
-  (= (normalized a) (normalized b)))
-
 (defn without-fragment
   "The URL `s` without its fragment."
   [s]
   (first (str/split s #"#" 2)))
+
+(defn same-page?
+  "Whether the URLs `a` and `b` are of the same page, once they're
+  normalized and without their fragments."
+  [a b]
+  (= (without-fragment (normalized a)) (without-fragment (normalized b))))
 
 ;; Webmention 3.2.2, and issue 91 of the spec for the attributes:
 ;; https://github.com/w3c/webmention/issues/91

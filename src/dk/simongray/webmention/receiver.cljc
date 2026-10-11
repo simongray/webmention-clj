@@ -10,10 +10,10 @@
 
 ;;; The request
 
-;; Webmention 3.2.1
+;; Webmention 3.2.1, where the fragment counts for nothing
 (defn- problem
-  "What's wrong with a Webmention from `source` to `target`, by the
-  :target-pred of `opts`, or nil."
+  "What's wrong with a Webmention from `source` to `target`, both
+  normalized, by the :target-pred of `opts`, or nil."
   [source target {:keys [target-pred] :as opts}]
   (cond
     (not (url/web-url? source))
@@ -22,24 +22,25 @@
     (not (url/web-url? target))
     "The target must be an http or https URL"
 
-    (source/same-url? source target)
+    (source/same-page? source target)
     "The source and the target must be different URLs"
 
-    ;; the fragment counts for nothing
     (not (target-pred (source/without-fragment target)))
     "The target doesn't take Webmentions"))
 
 (defn received
   "The Webmention in the Ring `request` to an endpoint with `opts`, as a map
-  of its :job, a map of its :source and :target, or else of the :rejection,
-  the answer to a request that the endpoint doesn't take."
+  of its :job, a map of its :source and :target, normalized, or else of
+  the :rejection, the answer to a request that the endpoint doesn't take."
   [{:keys [request-method] :as request} {:keys [max-form-bytes] :as opts}]
   (if (not= :post request-method)
     ;; RFC 9110, section 15.5.6
     {:rejection (assoc-in (ring/response 405 "") [:headers "Allow"] "POST")}
     (let [fields (ring/form-fields request max-form-bytes)
-          source (ring/field fields "source")
-          target (ring/field fields "target")
+          ;; normalized, so that e.g. dot segments don't get a target
+          ;; past a :target-pred that checks its path
+          source (some-> (ring/field fields "source") source/normalized)
+          target (some-> (ring/field fields "target") source/normalized)
           reason (problem source target opts)]
       (cond
         (nil? fields)
@@ -94,9 +95,19 @@
   [{:keys [target] :as job} {:keys [status url] :as response} opts]
   (let [report (assoc job :status status :url url)]
     (cond
-      (= 410 status)      (assoc report :outcome :gone)
-      (<= 200 status 299) (merge report (examined target response opts))
-      :else               (assoc report :outcome :failed))))
+      (= 410 status)
+      (assoc report :outcome :gone)
+
+      ;; Webmention 3.2.1: a source that redirects to the target is the
+      ;; target, which no Webmention comes from
+      (source/same-page? url target)
+      (assoc report :outcome :unlinked)
+
+      (<= 200 status 299)
+      (merge report (examined target response opts))
+
+      :else
+      (assoc report :outcome :failed))))
 
 ;;; The answer
 

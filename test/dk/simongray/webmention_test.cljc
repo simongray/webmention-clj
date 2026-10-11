@@ -190,6 +190,15 @@
       (serve (post {"source" source "target" (str target "#comments")}))
       (is (= [target] @taken))
       (is (= (str target "#comments") (:target (last @jobs))) "but the job keeps it"))
+    (testing "the URLs normalized before they're checked"
+      (reset! jobs [])
+      (is (= 202 (status (post {"source" "HTTPS://ME.example:443/notes/1" "target" "https://YOU.example/posts/hello"}))))
+      (is (= [{:source source :target target}] @jobs))
+      (is (= "The source and the target must be different URLs"
+             (:body (serve (post {"source" (str target "#reply") "target" target})))))
+      (let [serve (wm/handler (assoc opts :target-pred #(str/starts-with? % "https://you.example/posts/")))]
+        (is (= "The target doesn't take Webmentions"
+               (:body (serve (post {"source" source "target" "https://you.example/posts/../private/1"})))))))
     (testing "a form in the body"
       (reset! jobs [])
       (is (= 202 (status {:request-method :post
@@ -293,6 +302,8 @@
        ;; the URL of the source after its redirects
        (verify {:outcome :verified :url "https://me.example/notes/1-hello"}
                (assoc (page (str "<a href='" target "'>a</a>")) :url "https://me.example/notes/1-hello"))
+       ;; but not when that's the target itself
+       (verify {:outcome :unlinked :url target} (assoc (page (str "<a href='" target "'>a</a>")) :url target))
        ;; JSON, by its values
        (verify {:outcome :verified} (json "application/json" (str "{\"inReplyTo\": \"" target "\", \"tags\": [1, null]}")))
        (verify {:outcome :verified} (json "application/activity+json"

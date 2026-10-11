@@ -235,10 +235,11 @@
 (defn handler
   "A Ring handler for a Webmention endpoint, by `opts`:
 
-  - :target-pred, a function of a target URL without its fragment, which
-    says whether the endpoint takes Webmentions of it
+  - :target-pred, a function of a target URL, normalized and without its
+    fragment, which says whether the endpoint takes Webmentions of it
   - :schedule!, a function of the job of each Webmention that the endpoint
-    takes, a map of its :source and :target
+    takes, a map of its :source and :target, normalized as a browser
+    normalizes URLs
   - :status-url-fn, a function of a job that gives the URL of a page that
     tells how it fares, for an answer of 201 rather than 202
   - :report!, a function of the report of each Webmention, in place of
