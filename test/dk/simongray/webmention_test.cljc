@@ -310,6 +310,8 @@
                                           "{\"object\": {\"url\": [\"https:\\/\\/you.example\\/posts\\/hello\"]}}"))
        (verify {:outcome :unlinked} (json "application/json" (str "{\"" target "\": 1}")))
        (verify {:outcome :verified} (json "application/json" (str "not JSON, but " target)))
+       (verify {:outcome :verified} (json "application/json" (str "[1] and then " target)))
+       (verify {:outcome :verified} (json "application/json" (str (apply str (repeat 100000 "[")) target)))
        ;; other text, by the text of the URL
        (verify {:outcome :verified} (json "text/plain" (str "See " target ".")))
        (verify {:outcome :unlinked} (json "text/plain" "See nothing"))

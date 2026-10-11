@@ -6,7 +6,8 @@
             [dk.simongray.html-pieces :as html]
             [dk.simongray.html-pieces.url :as url]
             [dk.simongray.wary-fetch.headers :as headers]
-            [dk.simongray.webmention.page :as page]))
+            [dk.simongray.webmention.page :as page])
+  #?(:clj (:import [java.io PushbackReader StringReader])))
 
 ;; RFC 9110, section 8.3: a document without a media type can be
 ;; examined; RFC 6839, section 3.1: the +json and +xml suffixes
@@ -62,26 +63,35 @@
   (let [t (normalized target)]
     (boolean (some #{t} (page/attribute-urls elements base)))))
 
+(defn- json-data
+  "The data of `s`, a JSON text and nothing more, as JSON.parse reads it."
+  [s]
+  #?(:clj  (let [r (PushbackReader. (StringReader. s) 64)
+                 x (json/read r)]
+             (if (str/blank? (slurp r))
+               x
+               (throw (ex-info "There's more than JSON in the text" {}))))
+     :cljs (js->clj (js/JSON.parse s))))
+
 (defn- json-values
   "The values of the JSON `s` at any depth, the keys of its objects left
-  out."
+  out, or nil when `s` isn't JSON."
   [s]
-  (tree-seq coll?
-            #(if (map? %) (vals %) (seq %))
-            #?(:clj  (json/read-str s)
-               :cljs (js->clj (js/JSON.parse s)))))
+  (try
+    (into [] (tree-seq coll? #(if (map? %) (vals %) (seq %)) (json-data s)))
+    ;; a StackOverflowError too, of JSON that's nested too deep
+    (catch #?(:clj Throwable :cljs :default) _
+      nil)))
 
 ;; Webmention 3.2.2
 (defn json-links?
   "Whether a value of the JSON `s` is the URL `target`, or else, when `s`
   isn't JSON, whether its text has the URL in it."
   [s target]
-  (let [t (normalized target)]
-    (try
-      (boolean (some #(and (string? %) (= t (normalized %)))
-                     (json-values s)))
-      (catch #?(:clj Exception :cljs :default) _
-        (str/includes? s target)))))
+  (if-let [values (json-values s)]
+    (let [t (normalized target)]
+      (boolean (some #(and (string? %) (= t (normalized %))) values)))
+    (str/includes? s target)))
 
 ;; https://indieweb.org/meta_http-equiv_status, which webmention.rocks
 ;; takes for a deletion too
