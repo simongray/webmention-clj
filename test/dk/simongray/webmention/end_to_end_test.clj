@@ -159,7 +159,9 @@
               (is (= [target] (get-in report [:mf2 :items 0 :properties :in-reply-to])))
               (is (= {:kind :reply :author {:url (str url "/jane")} :url source}
                      (select-keys (mention/summary report) [:kind :author :url])))
-              (is (= {:name "Jane Doe" :url (str url "/jane")} (mention/author! report anywhere)))))
+              (is (= {:name "Jane Doe" :url (str url "/jane")} (mention/author! report anywhere)))
+              (is (= {:url (str url "/jane")} (mention/author! report))
+                  "but not from a private address, unless the options allow it")))
           (testing "an update that removes the link"
             (swap! pages assoc "/notes/1" (reply "Never mind"))
             (send!)
@@ -174,11 +176,18 @@
                    "/notes/1-hello" (reply "<a href=/posts/hello>Hello</a> again"))
             (send!)
             (is (= [[:verified (str url "/notes/1-hello")]] (map (juxt :outcome :url) (run-jobs! jobs)))))
+          (testing "a source that redirects for ever"
+            (swap! pages assoc "/notes/1" {:status 302 :headers {"Location" "/notes/1"} :body ""})
+            (send!)
+            (is (= [[:failed 302]] (map (juxt :outcome :status) (run-jobs! jobs)))))
           (testing "an endpoint that moved for good, by a 307"
             (is (= [:sent 202] ((juxt :outcome :status) (wm/send! source (str url "/posts/moved") anywhere)))))
           (testing "a target that the receiver doesn't take"
             (let [{:keys [outcome status message]} (wm/send! source (str url "/elsewhere") (assoc anywhere :endpoint (str url "/webmention")))]
               (is (= [:failed 400 "The target doesn't take Webmentions"] [outcome status message]))))
+          (testing "the targets of a sender are public alone"
+            (is (= [:failed :dk.simongray.wary-fetch/refused]
+                   ((juxt :outcome (comp :type :error)) (wm/send! source target)))))
           (testing "the sources of strangers are public alone"
             (reset! jobs [{:source source :target target}])
             (is (= [[:failed :dk.simongray.wary-fetch/refused]]
