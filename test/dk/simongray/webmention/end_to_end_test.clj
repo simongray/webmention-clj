@@ -170,6 +170,25 @@
             (swap! pages assoc "/notes/1" (text 410 "Gone"))
             (send!)
             (is (= [[:gone 410]] (map (juxt :outcome :status) (run-jobs! jobs)))))
+          (testing "updates 1 and 2 of webmention.rocks, by which a target is added and then removed"
+            (let [note    (str url "/notes/2")
+                  part-2  (str url "/posts/part-2")
+                  links   (fn [& paths]
+                            (html (str "<article class=h-entry><p class=e-content>"
+                                       (apply str (for [p paths] (str "<a href=" p ">a</a> ")))
+                                       "</p></article>")))
+                  results #(set (map (juxt :target :outcome) (run-jobs! jobs)))]
+              (swap! pages assoc
+                     "/posts/part-2" (html "<p>Part 2" {"Link" "</webmention>; rel=webmention"})
+                     "/notes/2"      (links "/posts/hello"))
+              (wm/send! note target anywhere)
+              (is (= #{[target :verified]} (results)))
+              (swap! pages assoc "/notes/2" (links "/posts/hello" "/posts/part-2"))
+              (wm/send-all! note [target part-2] anywhere)
+              (is (= #{[target :verified] [part-2 :verified]} (results)) "update 1: the old target again, and the new one")
+              (swap! pages assoc "/notes/2" (links "/posts/hello"))
+              (wm/send-all! note [target part-2] anywhere)
+              (is (= #{[target :verified] [part-2 :unlinked]} (results)) "update 2: the removed target too")))
           (testing "a source that moved"
             (swap! pages assoc
                    "/notes/1"       {:status 301 :headers {"Location" "/notes/1-hello"} :body ""}
@@ -185,6 +204,13 @@
           (testing "a target that the receiver doesn't take"
             (let [{:keys [outcome status message]} (wm/send! source (str url "/elsewhere") (assoc anywhere :endpoint (str url "/webmention")))]
               (is (= [:failed 400 "The target doesn't take Webmentions"] [outcome status message]))))
+          (testing "a source or a target over :max-bytes fails outright, as wary-fetch has it (sibling note 12)"
+            (swap! pages assoc "/big" (html (apply str (repeat 2000 "a"))))
+            (let [small (assoc anywhere :max-bytes 1000)]
+              (is (= [[:failed ::http/too-large] [:failed ::http/too-large]]
+                     (map (juxt :outcome (comp :type :error))
+                          [(wm/verify! {:source (str url "/big") :target target} small)
+                           (wm/send! source (str url "/big") small)])))))
           (testing "the targets of a sender are public alone"
             (is (= [:failed :dk.simongray.wary-fetch/refused]
                    ((juxt :outcome (comp :type :error)) (wm/send! source target)))))
