@@ -6,8 +6,9 @@ webmention-clj
 This is a Clojure and ClojureScript implementation of
 [Webmention](https://www.w3.org/TR/webmention/), the W3C standard by which
 a page tells another page that it links to it, e.g. a reply on one blog
-to a post on another. It covers both roles of the standard: the sender
-and the receiver.
+to a post on another. It covers both roles of the standard, the sender
+and the receiver, and reads what a receiver shows of a mention: its
+kind, its author and its content.
 
 - **The whole standard.** The code follows the Recommendation of 12
   January 2017 and cites the section of each rule it implements. Its tests
@@ -18,15 +19,15 @@ and the receiver.
 - **Nothing in the background.** The endpoint gives its work to you as
   jobs, plain maps, and you run them when and where you like.
 - **Safe by default.** Requests only go to the public internet, with
-  limits on time and size, and the endpoint doesn't fetch a source while
-  it answers.
+  limits on time and size, the endpoint doesn't fetch a source while it
+  answers, and the content of a mention comes sanitized.
 
 The same code runs on the JVM, in Node and in the browser.
 
 > This library was spun out of [indieblog](https://github.com/simongray/indieblog),
 > the software of [simon.grays.blog](https://simon.grays.blog), which sends,
-> receives and shows Webmentions. Like indieblog, it was developed with
-> assistance from frontier LLMs.
+> receives and shows Webmentions. It was developed with assistance from
+> frontier LLMs.
 
 Getting started
 ---------------
@@ -140,6 +141,55 @@ a `:report!` in place of `:schedule!`, which the standard allows but
 doesn't recommend. To take Webmentions from a form on your own page, wrap
 the handler, e.g. to send a browser back to the page after a 202, or to
 show it the reason of a 400 on a page of your own.
+
+### Show a mention
+
+The `mention/summary` function reads what a page shows of a mention
+from the report of a verified source: its kind, by
+[Post Type Discovery](https://www.w3.org/TR/post-type-discovery/), its
+author, by the [authorship algorithm](https://indieweb.org/authorship-spec),
+and its content:
+
+```clojure
+(require '[dk.simongray.webmention.mention :as mention])
+
+(mention/summary report)
+;; => {:source      "https://jane.example/notes/2026/10/1"
+;;     :target      "https://simon.grays.blog/posts/2026/hello"
+;;     :kind        :reply
+;;     :url         "https://jane.example/notes/2026/10/1"
+;;     :author      {:name "Jane Doe" :url "https://jane.example/"}
+;;     :published   "2026-10-11T12:00:00+02:00"
+;;     :content     {:text   "Nice post!"
+;;                   :hiccup ([:p {} "Nice " [:a {:href "https://simon.grays.blog/posts/2026/hello"
+;;                                                :rel  "nofollow ugc"}
+;;                                            "post"] "!"])}
+;;     :in-reply-to ["https://simon.grays.blog/posts/2026/hello"]}
+```
+
+The `:kind` is `:reply`, `:like`, `:repost`, `:bookmark`, `:rsvp` or
+`:mention`. Link a mention by its `:url` rather than its source, since
+the source of a post that a bridge such as Bridgy sent on is a page of
+the bridge. The `:hiccup` of the content is sanitized by
+[html-pieces](https://github.com/simongray/html-pieces), with its
+headings as paragraphs, its images as their alt text, and
+`rel="nofollow ugc"` on its links. To show it in another way, give
+`summary` an `:element-fn` of your own. Show it with a renderer that
+escapes text, e.g. Replicant or `hiccup2.core/html`.
+
+When a page names its author by a URL alone, e.g. with
+`<a class="u-author" href="https://jane.example/">`, the `:author` is
+that `:url`, and `author!` fetches the author's page for its
+representative h-card:
+
+```clojure
+(mention/author! report)
+;; => {:name "Jane Doe" :url "https://jane.example/" :photo "https://jane.example/me.jpg"}
+```
+
+The `mention/representative-card` function gives the h-card of any page
+whose microformats you've parsed, e.g. the homepage of someone who signs
+in with their domain.
 
 ### Options
 
