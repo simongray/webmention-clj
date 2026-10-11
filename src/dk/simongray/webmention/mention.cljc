@@ -17,9 +17,9 @@
             [dk.simongray.webmention.source :as source]))
 
 (defn- typed?
-  "Whether the microformat `item` is of the `type`, e.g. h-card."
-  [type item]
-  (boolean (some #{type} (:type item))))
+  "Whether the microformat `item` is of the type `t`, e.g. h-card."
+  [t item]
+  (boolean (some #{t} (:type item))))
 
 (defn- value
   "The plain value of the property value `v`: a string as it is, else the
@@ -76,7 +76,8 @@
   page or in a feed there. Nil when it has none."
   [mf2 url]
   (let [page    (source/normalized url)
-        top     (mapcat #(if (typed? "h-feed" %) (:children %) [%]) (:items mf2))
+        top     (mapcat #(if (typed? "h-feed" %) (:children %) [%])
+                        (:items mf2))
         entries (filter #(typed? "h-entry" %) top)]
     (or (some #(when (some #{page} (urls % :url)) %) entries)
         (first entries))))
@@ -119,13 +120,11 @@
          to? (fn [k]
                (let [us (urls entry k)]
                  (if t (some #{t} us) (seq us))))]
-     (cond
-       (and (rsvp entry) (or (nil? t) (to? :in-reply-to)))
-       :rsvp
-
-       :else
-       (or (some (fn [[kind k]] (when (to? k) kind)) response-properties)
-           :mention)))))
+     (or (when (and (rsvp entry) (or (nil? t) (to? :in-reply-to)))
+           :rsvp)
+         (some (fn [[response k]] (when (to? k) response))
+               response-properties)
+         :mention))))
 
 ;;; Author
 
@@ -154,13 +153,13 @@
   `entry`, as a map of the :card of an h-card or of a name, or of the URL
   of the author's :page, or nil."
   [mf2 url entry]
-  (let [author    #(first (get-in % [:properties :author]))
-        permalink (some #{(source/normalized url)} (urls entry :url))]
+  (let [author     #(first (get-in % [:properties :author]))
+        permalink? (some #{(source/normalized url)} (urls entry :url))
+        rel-author (first (get-in mf2 [:rels "author"]))]
     (or (some-> (or (author entry) (author (feed-of mf2 entry))) author-of)
         ;; a rel=author link of the page, for older pages
-        (when-let [page (and entry permalink (first (get-in mf2 [:rels "author"])))]
-          (when (url/web-url? page)
-            {:page page})))))
+        (when (and permalink? (url/web-url? rel-author))
+          {:page rel-author}))))
 
 (defn- cards
   "The h-cards in the parsed `mf2` of the page at `url` that can represent
@@ -172,7 +171,7 @@
   (let [page   (source/normalized url)
         all    (filter #(typed? "h-card" %) (items mf2))
         me     (set (map source/normalized (get-in mf2 [:rels "me"])))
-        named? (fn [k card] (some #{page} (urls card k)))]
+        named? (fn [k item] (some #{page} (urls item k)))]
     [(first (filter #(and (named? :url %) (named? :uid %)) all))
      (first (filter #(some me (urls % :url)) all))
      (when (= 1 (count all))
@@ -221,10 +220,11 @@
   ([report]
    (author! report {}))
   ([{:keys [mf2 url source] :as report} opts]
-   (let [base                (or url source)
-         {:keys [card page]} (named-author mf2 base (entry mf2 base))]
+   (let [base                      (or url source)
+         {:keys [page] :as author} (named-author mf2 base (entry mf2 base))]
      (if-not page
-       (async/then card identity)
+       ;; a promise in ClojureScript too
+       (async/then (:card author) identity)
        (async/then
         (async/attempt #(http/fetch! page (merge webmention/default-options
                                                  opts)))
@@ -266,19 +266,19 @@
       (str/trimr head)
       (str/replace head #"\s+\S*$" ""))))
 
-(defn- excerpt
-  "The sanitized Hiccup `nodes` with `n` characters of text at most, as a
-  pair of the nodes and the number of characters left, which is negative
-  once a text has been cut, and then ends in an ellipsis."
+(defn- cut-nodes
+  "The Hiccup `nodes` with `n` characters of text at most, as a pair of the
+  nodes and the number of characters left, which is negative once a text
+  has been cut, and then ends in an ellipsis."
   [nodes n]
   (reduce (fn [[kept left] node]
             (cond
               (neg? left)
               (reduced [kept left])
 
-              (not (string? node))
+              (vector? node)
               (let [[tag attrs & children] node
-                    [kids left]            (excerpt children left)]
+                    [kids left]            (cut-nodes children left)]
                 [(conj kept (into [tag attrs] kids)) left])
 
               (<= (count node) left)
@@ -289,6 +289,12 @@
           [[] n]
           nodes))
 
+(defn- excerpt
+  "The Hiccup `nodes` cut back to `n` characters of text, with an ellipsis
+  where a text was cut."
+  [nodes n]
+  (seq (first (cut-nodes nodes n))))
+
 ;; Webmention 4.1: what's shown of a source is sanitized
 (defn- content
   "The content of the `item`, or else its summary, by `opts`, as a map of
@@ -296,14 +302,15 @@
   `base`, and its text cut back to the :max-length of `opts`. Nil when it
   has neither."
   [item base {:keys [max-length] :as opts}]
-  (when-let [v (some #(first (get-in item [:properties %])) [:content :summary])]
+  (when-let [v (some #(first (get-in item [:properties %]))
+                     [:content :summary])]
     (let [x      (if (map? v) (:hiccup v (:value v)) v)
           hiccup (cond-> (html/hiccup (if (string? x) (paragraphs x) x)
                                       (merge {:element-fn content-element
                                               :base-url   base
                                               :shorthand? false}
                                              (apply dissoc opts option-keys)))
-                   max-length (-> (excerpt max-length) first seq))
+                   max-length (excerpt max-length))
           text   (html/text hiccup)]
       (when-not (str/blank? text)
         {:text text :hiccup hiccup}))))
@@ -320,10 +327,10 @@
   "The name of the `item` when it's a title rather than the start of its
   content, or nil."
   [item]
-  (let [name    (squeezed (property item :name))
-        content (squeezed (or (property item :content) (property item :summary)))]
-    (when (and (seq name) (seq content) (not (str/starts-with? content name)))
-      name)))
+  (let [n    (squeezed (property item :name))
+        text (squeezed (or (property item :content) (property item :summary)))]
+    (when (and (seq n) (seq text) (not (str/starts-with? text n)))
+      n)))
 
 (defn- named
   "The name of the `entry` on the page whose title element has the text
@@ -365,17 +372,19 @@
     the title element of the page, when the entry has none"
   ([report]
    (summary report {}))
-  ([{:keys [mf2 url source target title] :as report} opts]
-   (let [base                (or url source)
-         e                   (entry mf2 base)
-         {:keys [card page]} (named-author mf2 base e)
-         k                   (if e (kind e target) :mention)]
+  ([{:keys [mf2 url source target] page-title :title :as report} opts]
+   (let [base   (or url source)
+         e      (entry mf2 base)
+         author (named-author mf2 base e)
+         k      (if e (kind e target) :mention)]
      (compact {:source      source
                :target      target
                :kind        k
                :url         (or (first (urls e :url)) base)
-               :author      (or card (when page {:url page}))
-               :name        (named e title opts)
+               :author      (if-let [page (:page author)]
+                              {:url page}
+                              (:card author))
+               :name        (named e page-title opts)
                :published   (property e :published)
                :content     (content e base opts)
                :in-reply-to (not-empty (vec (urls e :in-reply-to)))
@@ -390,7 +399,8 @@
      :mf2     (mf/parse (str "<article class=h-entry>"
                              "<a class='p-author h-card' href=/>Jane</a>"
                              "<div class=e-content><h2>Yes!</h2><p>Nice "
-                             "<a class=u-in-reply-to href=https://me.example/posts/hello>post</a>"
+                             "<a class=u-in-reply-to "
+                             "href=https://me.example/posts/hello>post</a>"
                              "</div></article>")
                         "https://them.example/notes/1")})
 
