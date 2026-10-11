@@ -92,8 +92,9 @@
 (defn verification
   "The report of the `job` by the `response` to the request for its
   source, by `opts`."
-  [{:keys [target] :as job} {:keys [status url] :as response} opts]
-  (let [report (assoc job :status status :url url)]
+  [{:keys [target] :as job} {:keys [status url truncated?] :as response} opts]
+  (let [report (cond-> (assoc job :status status :url url)
+                 truncated? (assoc :truncated? true))]
     (cond
       (= 410 status)
       (assoc report :outcome :gone)
@@ -104,7 +105,12 @@
       (assoc report :outcome :unlinked)
 
       (<= 200 status 299)
-      (merge report (examined target response opts))
+      (let [{:keys [outcome] :as found} (examined target response opts)]
+        ;; Webmention 4.2: the rest of a source cut at :max-bytes might
+        ;; link the target, so its start can't tell of a deletion
+        (merge report (if (and truncated? (= :unlinked outcome))
+                        {:outcome :failed}
+                        found)))
 
       :else
       (assoc report :outcome :failed))))

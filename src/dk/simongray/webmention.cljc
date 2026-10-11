@@ -45,6 +45,8 @@
   - :allow-pred, url/public?, for a :send of your own
   - :timeout-seconds, 5, and :max-bytes, 1 MB, the limits of a request for
     a target or a source, as Webmention 4.2 suggests
+  - :truncate?, true, so that a target or a source larger than :max-bytes
+    is read up to that limit, as Webmention 4.2 has it, rather than refused
   - :max-redirects, 5, how many redirects a request follows
   - :user-agent, user-agent
   - :accept, accept
@@ -56,6 +58,7 @@
    :allow-pred           url/public?
    :timeout-seconds      5
    :max-bytes            (* 1024 1024)
+   :truncate?            true
    :max-redirects        5
    :user-agent           user-agent
    :accept               accept
@@ -214,6 +217,10 @@
   Webmention 3.2.4 has it. A job is a map of the :source and the :target,
   as the handler gives it to :schedule!, and the report has them too,
   with the final :url of the source, after its redirects.
+
+  Only the start of a source larger than :max-bytes is read, and its
+  report has :truncated?. It's :failed rather than :unlinked when its
+  start doesn't link the target, since the rest might.
 
   A link is a URL in an attribute of an HTML page, e.g. the href of an a
   or the src of an img, resolved against the page, a value in JSON, or the

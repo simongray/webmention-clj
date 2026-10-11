@@ -204,13 +204,22 @@
           (testing "a target that the receiver doesn't take"
             (let [{:keys [outcome status message]} (wm/send! source (str url "/elsewhere") (assoc anywhere :endpoint (str url "/webmention")))]
               (is (= [:failed 400 "The target doesn't take Webmentions"] [outcome status message]))))
-          (testing "a source or a target over :max-bytes fails outright, as wary-fetch has it (sibling note 12)"
-            (swap! pages assoc "/big" (html (apply str (repeat 2000 "a"))))
-            (let [small (assoc anywhere :max-bytes 1000)]
-              (is (= [[:failed ::http/too-large] [:failed ::http/too-large]]
-                     (map (juxt :outcome (comp :type :error))
-                          [(wm/verify! {:source (str url "/big") :target target} small)
-                           (wm/send! source (str url "/big") small)])))))
+          (testing "a source or a target over :max-bytes, read up to the limit"
+            (let [padding (apply str (repeat 2000 "a"))
+                  small   (assoc anywhere :max-bytes 1000)
+                  verify! #(wm/verify! {:source (str url %) :target target} small)]
+              (swap! pages assoc
+                     "/big-reply"  (html (str "<a href=/posts/hello>Re</a>" padding))
+                     "/big-late"   (html (str padding "<a href=/posts/hello>Re</a>"))
+                     "/posts/big"  (html (str "<link rel=webmention href=/webmention>" padding)))
+              (is (= [:verified true] ((juxt :outcome :truncated?) (verify! "/big-reply"))))
+              (is (= [:failed true] ((juxt :outcome :truncated?) (verify! "/big-late")))
+                  "not :unlinked, since the link may be further on")
+              (is (= [:sent 202] ((juxt :outcome :status) (wm/send! source (str url "/posts/big") small))))
+              (is (= [:failed ::http/too-large]
+                     ((juxt :outcome (comp :type :error))
+                      (wm/verify! {:source (str url "/big-late") :target target} (assoc small :truncate? false))))
+                  "or refused, when :truncate? is false")))
           (testing "the targets of a sender are public alone"
             (is (= [:failed :dk.simongray.wary-fetch/refused]
                    ((juxt :outcome (comp :type :error)) (wm/send! source target)))))

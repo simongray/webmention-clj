@@ -391,6 +391,10 @@
                (assoc (page (str "<a href='" target "'>a</a>")) :url "https://me.example/notes/1-hello"))
        ;; but not when that's the target itself
        (verify {:outcome :unlinked :url target} (assoc (page (str "<a href='" target "'>a</a>")) :url target))
+       ;; the start of a source larger than :max-bytes
+       (verify {:outcome :verified :truncated? true}
+               (assoc (page (str "<a href='" target "'>a</a>")) :truncated? true))
+       (verify {:outcome :failed :truncated? true} (assoc (page "<p>Re nothing") :truncated? true))
        ;; JSON, by its values
        (verify {:outcome :verified} (json "application/json" (str "{\"inReplyTo\": \"" target "\", \"tags\": [1, null]}")))
        (verify {:outcome :verified} (json "application/activity+json"
@@ -408,11 +412,11 @@
 (deftest the-request-for-a-source
   (let [sent (atom [])]
     (run #(wm/verify! {:source source :target target} {:send (sender sent {})})
-         #(let [{:keys [headers user-agent timeout-seconds max-bytes max-redirects allow-pred]} (first @sent)]
+         #(let [{:keys [headers user-agent timeout-seconds max-bytes truncate? max-redirects allow-pred]} (first @sent)]
             (is (= [wm/accept wm/user-agent] [(get headers "Accept") user-agent])
                 "Webmention 3.2.2: the media types whose links are read")
-            (is (= [5 (* 1024 1024) 5] [timeout-seconds max-bytes max-redirects])
-                "Webmention 4.2: limits on time, size and redirects")
+            (is (= [5 (* 1024 1024) true 5] [timeout-seconds max-bytes truncate? max-redirects])
+                "Webmention 4.2: limits on time, size and redirects, and a body read up to its limit")
             (is (fn? allow-pred) "Webmention 4.3: a check of the address")))))
 
 (deftest the-microformats-of-a-source
