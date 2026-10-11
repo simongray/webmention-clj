@@ -24,10 +24,11 @@
   the response `headers`, in their order, resolved against `base`, the URL
   of the response."
   [headers base rel]
-  (keep (fn [link]
-          (when (relation? rel (:rel link))
-            (url/resolve base (:href link))))
-        (headers/links headers)))
+  (let [absolute (url/resolver base)]
+    (keep (fn [link]
+            (when (relation? rel (:rel link))
+              (absolute (:href link))))
+          (headers/links headers))))
 
 ;; HTML Standard, sections 4.2.4 and 4.6.1: a link element or a hyperlink
 ;; without an href names nothing
@@ -36,9 +37,10 @@
   with the relation type `rel`, in document order, resolved against
   `base`."
   [elements base rel tags]
-  (keep (fn [[tag attrs]]
-          (when (and (contains? tags tag)
-                     (:href attrs)
-                     (relation? rel (:rel attrs)))
-            (url/resolve base (:href attrs))))
-        elements))
+  (let [absolute (url/resolver base)]
+    (keep (fn [[tag attrs]]
+            (when (and (contains? tags tag)
+                       (:href attrs)
+                       (relation? rel (:rel attrs)))
+              (absolute (:href attrs))))
+          elements)))

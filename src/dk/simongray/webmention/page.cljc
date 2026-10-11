@@ -49,12 +49,13 @@
   html-pieces names them, resolved against `base`, e.g. the href of an a
   and the src of an img."
   [elements base]
-  (let [url? (into html/url-attributes html/url-list-attributes)]
+  (let [url?     (into html/url-attributes html/url-list-attributes)
+        absolute (url/resolver base)]
     (for [[_ attrs] elements
           [k v]     attrs
           :when     (and (url? k) (string? v))
           s         (candidates k v)
-          :let      [u (url/resolve base s)]
+          :let      [u (absolute s)]
           :when     u]
       u)))
 
@@ -62,11 +63,12 @@
   "The URLs that the a and area elements among the `elements` link to,
   resolved against `base`, in document order."
   [elements base]
-  ;; HTML Standard, section 4.6.1
-  (keep (fn [[tag {:keys [href]}]]
-          (when (and (#{:a :area} tag) href)
-            (url/resolve base href)))
-        elements))
+  (let [absolute (url/resolver base)]
+    ;; HTML Standard, section 4.6.1
+    (keep (fn [[tag {:keys [href]}]]
+            (when (and (#{:a :area} tag) href)
+              (absolute href)))
+          elements)))
 
 (defn title
   "The text of the first title element among the `elements` of a page,
