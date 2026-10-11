@@ -77,7 +77,9 @@
          #(async/then (wm/discover! endpoint {:send send})
                       (fn [answer] (is (= {:status 500} answer) "no endpoint in a page that isn't a success")))
          #(async/then (wm/discover! target {:send (fn [_] (throw (ex-info "No route" {})))})
-                      (fn [{:keys [error]}] (is (= "No route" (:reason error))))))))
+                      (fn [{:keys [error]}] (is (= "No route" (:reason error)))))
+         #(async/then (wm/discover! "mailto:you@you.example")
+                      (fn [{:keys [error]}] (is (= "The target is not an http or https URL" (:reason error))))))))
 
 (deftest the-request-of-a-webmention
   (testing "21: the query string of the endpoint stays, and the form is the body"
@@ -151,17 +153,38 @@
          #(is (= [:post] (map :method @sent)) "an endpoint found before spares the discovery")
          #(is (thrown? #?(:clj Exception :cljs js/Error) (wm/send! "/relative" target))))))
 
+(defn- later
+  "The result of `f` after `ms` milliseconds, in a future on the JVM or a
+  promise in ClojureScript."
+  [ms f]
+  #?(:clj  (future (Thread/sleep ^long ms) (f))
+     :cljs (js/Promise. (fn [resolve] (js/setTimeout #(resolve (f)) ms)))))
+
 (deftest sending-to-several
-  (let [sent    (atom [])
-        answers (into {[:get "https://c.example/"] (html "https://c.example/" "<p>Hi")}
-                      (for [t ["https://a.example/" "https://b.example/"]]
-                        [[:get t] (html t "<link rel=webmention href=/wm>")]))]
+  (let [sent      (atom [])
+        answers   (into {[:get "https://c.example/"] (html "https://c.example/" "<p>Hi")}
+                        (for [t ["https://a.example/" "https://b.example/"]]
+                          [[:get t] (html t "<link rel=webmention href=/wm>")]))
+        in-flight (atom 0)
+        most      (atom 0)
+        slow      (fn [{:keys [method url]}]
+                    (swap! most max (swap! in-flight inc))
+                    (later 20 #(do (swap! in-flight dec)
+                                   (if method
+                                     {:status 202 :url url :headers {} :body ""}
+                                     (html url "<link rel=webmention href=/wm>")))))]
     (run #(async/then (wm/send-all! source ["https://a.example/" "https://b.example/" "https://a.example/" "https://c.example/"]
                                     {:send (sender sent answers)})
                       (fn [reports]
                         (is (= [["https://a.example/" :failed] ["https://b.example/" :failed] ["https://c.example/" :no-endpoint]]
                                (map (juxt :target :outcome) reports))
-                            "each target once, in order"))))))
+                            "each target once, in order")))
+         #(async/then (wm/send-all! source (map (fn [n] (str "https://t" n ".example/")) (range 5))
+                                    {:send slow :concurrency 2})
+                      (fn [reports]
+                        (is (= (repeat 5 :sent) (map :outcome reports)))
+                        (is (= 2 @most) ":concurrency targets at a time")))
+         #(async/then (wm/send-all! source []) (fn [reports] (is (empty? reports)))))))
 
 (deftest the-links-of-a-page
   (is (= ["https://you.example/posts/hello" "https://me.example/about" "https://them.example/"]
@@ -246,6 +269,8 @@
       (is (= [{:source source :target target} {:source source :target target}] @jobs))
       (is (= "The source must be an http or https URL"
              (:body (serve {:request-method :post :body (str "source=&target=" target)}))))
+      (is (= "The source must be an http or https URL"
+             (:body (serve {:request-method :post :body (str "source&target=" target)}))))
       (is (= 400 (status {:request-method :post})) "nor a body at all"))
     (testing "a body of bytes, or on the JVM a stream"
       (let [form (str "source=" source "&target=" target)]
@@ -352,6 +377,8 @@
                (page (str "<meta http-equiv=Status content='410 Gone'><a href='" target "'>a</a>")))
        (verify {:outcome :verified}
                (page (str "<meta http-equiv=Status content='200 OK'><a href='" target "'>a</a>")))
+       (verify {:outcome :verified}
+               (page (str "<meta http-equiv=Status content=Gone><meta name=status content=410><a href='" target "'>a</a>")))
        (verify {:outcome :failed :status 404} {:status 404})
        (verify {:outcome :failed :status 500} {:status 500})
        #(async/then (wm/verify! {:source source :target target}
