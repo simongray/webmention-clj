@@ -133,3 +133,66 @@ notes for html-pieces).
 
 **Could offer.** html-pieces: the same public functions for reading the
 tree that microformats-clj asks for.
+
+
+8. Representative h-card and authorship
+---------------------------------------
+
+**Needed.** The author of a mention, by the authorship algorithm, and the
+representative h-card of the author's page. The README of
+microformats-clj leaves both out, as specs of their own. IndieAuth needs
+the representative h-card too, for the profile of someone who signs in.
+
+**Did.** `dk.simongray.webmention.mention` has `representative-card`, a
+function of a page's parsed microformats and its URL, and the steps of
+the authorship algorithm that read a page. Its `author!` fetches the
+author's page.
+
+**Could offer.** microformats-clj: `representative-card`, and the steps
+of the authorship algorithm that read a page, which give either the
+author or the URL of the author's page to fetch, so that the fetch stays
+with the caller.
+
+
+9. Microformats in document order
+---------------------------------
+
+**Needed.** The first h-card of a page, as representative h-card parsing
+and the authorship algorithm have it, among the h-cards at any depth.
+
+**Did.** A walk of each item, the items in its properties and then its
+children. The properties of an item are a map, so the walk doesn't know
+which of them comes first in the page, and the first h-card is only
+nearly the first in document order.
+
+**Could offer.** microformats-clj: every microformat of a page in
+document order, which its parser knows while it walks the page.
+
+
+10. Reading a parsed item
+-------------------------
+
+**Needed.** The plain value of a property, whether it's text or an
+embedded item, the URLs of a property, the url of an embedded h-cite
+among them, and the items of a type at any depth.
+
+**Did.** Private functions in `dk.simongray.webmention.mention`, much as
+indieblog had them.
+
+**Could offer.** microformats-clj: a few functions for reading the items
+that `mf/parse` gives.
+
+
+11. Plain text as Hiccup
+------------------------
+
+**Needed.** The Hiccup of a p-summary, which is plain text and can hold a
+`<`. The `hiccup` of html-pieces reads a string with a tag in it as HTML,
+so `"Use <b> for bold."` gives `("Use " [:b {} " for bold."])`.
+
+**Did.** The text is made into Hiccup of paragraphs and line breaks
+first, which `hiccup` takes as text.
+
+**Could offer.** html-pieces: an option that reads a string as plain
+text whatever it holds, or its function for paragraphs, which is
+private.
