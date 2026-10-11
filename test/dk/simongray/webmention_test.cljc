@@ -213,6 +213,22 @@
     (run #(async/then (answered serve (post {"source" source "target" target}))
                       (fn [{:keys [status]}] (is (= 202 status)))))))
 
+(deftest verifying-at-once
+  (let [reports (atom [])
+        serve   (fn [body]
+                  (wm/handler {:target-pred (constantly true)
+                               :report!     #(swap! reports conj (:outcome %))
+                               :send        (sender (atom []) {[:get source] (html source body)})}))
+        request (post {"source" source "target" target})]
+    (run #(async/then ((serve (str "<a href=" target ">Hi</a>")) request)
+                      (fn [{:keys [status]}] (is (= 200 status))))
+         #(async/then ((serve "<p>Hi") request)
+                      (fn [{:keys [status body]}]
+                        (is (= [400 "The source doesn't link the target"] [status body]))))
+         #(is (= [:verified :unlinked] @reports))
+         #(is (= 400 (:status ((serve "") (post {"source" source}))))
+              "a Webmention that's wrong isn't verified"))))
+
 (defn- verify
   "Verify a Webmention from `source` to `target` whose source answers with
   the `response`, and check the report against `expected`, its keys

@@ -248,81 +248,6 @@
          (filter url/web-url?)
          distinct)))
 
-;;; Receiving
-
-;; Webmention 3.2.1
-(defn- problem
-  "What's wrong with a Webmention from `source` to `target`, by the
-  :target-pred of `opts`, or nil."
-  [source target {:keys [target-pred] :as opts}]
-  (cond
-    (not (url/web-url? source))
-    "The source must be an http or https URL"
-
-    (not (url/web-url? target))
-    "The target must be an http or https URL"
-
-    (source/same-url? source target)
-    "The source and the target must be different URLs"
-
-    ;; the fragment counts for nothing
-    (not (target-pred (source/without-fragment target)))
-    "The target doesn't take Webmentions"))
-
-;; Webmention 3.2 and 3.2.3
-(defn- answer
-  "The endpoint's answer to the POST `request`, by `opts`, once the job of
-  a Webmention that it takes has gone to :schedule!."
-  [{:keys [schedule! status-url-fn max-form-bytes] :as opts} request]
-  (let [fields (ring/form-fields request max-form-bytes)
-        source (ring/field fields "source")
-        target (ring/field fields "target")]
-    (if (nil? fields)
-      (ring/response 413 "The request is too large")
-      (if-let [reason (problem source target opts)]
-        (ring/response 400 reason)
-        (let [job {:source source :target target}]
-          (schedule! job)
-          (if status-url-fn
-            (assoc-in (ring/response 201 "The Webmention is accepted")
-                      [:headers "Location"]
-                      (status-url-fn job))
-            (ring/response 202 "The Webmention is accepted")))))))
-
-(defn handler
-  "A Ring handler for a Webmention endpoint, by `opts`:
-
-  - :target-pred, a function of a target URL without its fragment, which
-    says whether the endpoint takes Webmentions of it
-  - :schedule!, a function of the job of each Webmention that the endpoint
-    takes, a map of its :source and :target
-  - :status-url-fn, a function of a job that gives the URL of a page that
-    tells how it fares, for an answer of 201 rather than 202
-  - the :max-form-bytes of default-options
-
-  The handler checks each Webmention at once, but doesn't fetch its
-  source. It answers 202 to a Webmention that it takes, and gives its job
-  to :schedule!. Run the job with verify! soon after, e.g. on a thread
-  pool or from a queue in a database. A Webmention of the same source and
-  target that comes again is how the source tells of an update or a
-  deletion, so it's verified again.
-
-  The handler answers 400 with the reason in plain text to a Webmention
-  that's wrong, 405 to a request that isn't a POST, and 413 to one larger
-  than :max-form-bytes. In ClojureScript, a server gives the handler a
-  body that it has read."
-  [{:keys [target-pred schedule!] :as opts}]
-  (when-not (and (ifn? target-pred) (ifn? schedule!))
-    (throw (ex-info "An endpoint needs the functions :target-pred and :schedule!"
-                    {})))
-  (let [opts (merge default-options opts)]
-    (ring/handler
-     (fn [request]
-       (if (= :post (:request-method request))
-         (answer opts request)
-         ;; RFC 9110, section 15.5.6
-         (assoc-in (ring/response 405 "") [:headers "Allow"] "POST"))))))
-
 ;;; Verifying
 
 (defn- examined
@@ -392,6 +317,112 @@
       (fn [{:keys [value error]}]
         (or value
             (assoc job :outcome :failed :error (http/failure error))))))))
+
+;;; Receiving
+
+;; Webmention 3.2.1
+(defn- problem
+  "What's wrong with a Webmention from `source` to `target`, by the
+  :target-pred of `opts`, or nil."
+  [source target {:keys [target-pred] :as opts}]
+  (cond
+    (not (url/web-url? source))
+    "The source must be an http or https URL"
+
+    (not (url/web-url? target))
+    "The target must be an http or https URL"
+
+    (source/same-url? source target)
+    "The source and the target must be different URLs"
+
+    ;; the fragment counts for nothing
+    (not (target-pred (source/without-fragment target)))
+    "The target doesn't take Webmentions"))
+
+;; Webmention 3.2 and 3.2.3: 200 once the source is verified, and else
+;; 400, since the source is the sender's
+(defn- verified
+  "The endpoint's answer to a Webmention that it verified at once, by the
+  `report` of the verification."
+  [{:keys [outcome] :as report}]
+  (case outcome
+    :verified (ring/response 200 "The source links the target")
+    :unlinked (ring/response 400 "The source doesn't link the target")
+    :gone     (ring/response 400 "The source is gone")
+    (ring/response 400 "The source can't be fetched")))
+
+;; Webmention 3.2: 202 for a Webmention that's verified later, or 201 with
+;; the URL of a page that tells how it fares
+(defn- accepted
+  "The endpoint's answer to a Webmention whose `job` went to :schedule!, by
+  the :status-url-fn of `opts`."
+  [job {:keys [status-url-fn] :as opts}]
+  (if status-url-fn
+    (assoc-in (ring/response 201 "The Webmention is accepted")
+              [:headers "Location"]
+              (status-url-fn job))
+    (ring/response 202 "The Webmention is accepted")))
+
+(defn- answer
+  "The endpoint's answer to the POST `request`, by `opts`, once the job of
+  a Webmention that it takes has gone to :schedule!, or has been verified
+  and its report has gone to :report!."
+  [{:keys [schedule! report! max-form-bytes] :as opts} request]
+  (let [fields (ring/form-fields request max-form-bytes)
+        source (ring/field fields "source")
+        target (ring/field fields "target")
+        reason (problem source target opts)
+        job    {:source source :target target}]
+    (cond
+      (nil? fields) (ring/response 413 "The request is too large")
+      reason        (ring/response 400 reason)
+      report!       (async/then (verify! job opts)
+                                (fn [report]
+                                  (report! report)
+                                  (verified report)))
+      :else         (do (schedule! job)
+                        (accepted job opts)))))
+
+(defn handler
+  "A Ring handler for a Webmention endpoint, by `opts`:
+
+  - :target-pred, a function of a target URL without its fragment, which
+    says whether the endpoint takes Webmentions of it
+  - :schedule!, a function of the job of each Webmention that the endpoint
+    takes, a map of its :source and :target
+  - :status-url-fn, a function of a job that gives the URL of a page that
+    tells how it fares, for an answer of 201 rather than 202
+  - :report!, a function of the report of each Webmention, in place of
+    :schedule!, which verifies each source before the handler answers
+  - the options of verify!, and the :max-form-bytes of default-options
+
+  The handler checks each Webmention at once, but doesn't fetch its
+  source. It answers 202 to a Webmention that it takes, and gives its job
+  to :schedule!. Run the job with verify! soon after, e.g. on a thread
+  pool or from a queue in a database. A Webmention of the same source and
+  target that comes again is how the source tells of an update or a
+  deletion, so it's verified again.
+
+  With :report!, the handler verifies the source while the sender waits,
+  which Webmention 3.2 allows but doesn't recommend, since a sender can
+  then hold up the endpoint. It answers 200 to a source that links the
+  target, and 400 to any other.
+
+  The handler answers 400 with the reason in plain text to a Webmention
+  that's wrong, 405 to a request that isn't a POST, and 413 to one larger
+  than :max-form-bytes. In ClojureScript, a server gives the handler a
+  body that it has read, and with :report! the handler gives a promise."
+  [{:keys [target-pred schedule! report!] :as opts}]
+  (when-not (and (ifn? target-pred) (ifn? (or report! schedule!)))
+    (throw (ex-info "An endpoint needs the functions :target-pred and :schedule!"
+                    {})))
+  (let [opts (merge default-options opts)]
+    (ring/handler
+     (fn [request]
+       (if (= :post (:request-method request))
+         (answer opts request)
+         ;; RFC 9110, section 15.5.6
+         (assoc-in (ring/response 405 "") [:headers "Allow"] "POST"))))))
 
 (comment
   (discover {:url     "https://example.com/post"
