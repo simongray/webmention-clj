@@ -147,8 +147,8 @@ the representative h-card too, for the profile of someone who signs in.
 
 **Did.** The namespace `dk.simongray.webmention.mention` has
 `representative-card`, a function of a page's parsed microformats and
-its URL, and the steps of the authorship algorithm that read a page. Its
-`author!` fetches the author's page.
+its URL, and `author!`, which fetches the author's page. The steps of
+both that read a page are in `dk.simongray.webmention.authorship`.
 
 **Could offer.** In microformats-clj, `representative-card` and the
 steps of the authorship algorithm that read a page, which give either
@@ -178,8 +178,8 @@ microformats-clj, whose parser knows the order while it walks the page.
 embedded item, the URLs of a property, the url of an embedded h-cite
 among them, and the items of a type at any depth.
 
-**Did.** Private functions in `dk.simongray.webmention.mention`, much as
-indieblog had them.
+**Did.** The namespace `dk.simongray.webmention.items`, much as
+indieblog had its functions.
 
 **Could offer.** A few functions in microformats-clj for reading the
 items that `mf/parse` gives.
