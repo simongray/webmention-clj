@@ -30,7 +30,8 @@
 ;; Webmention 3.2.2: the media types whose links the library reads first
 (def accept
   "The Accept header of the requests for targets and sources."
-  "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.1")
+  (str "text/html,application/xhtml+xml,application/json;q=0.9,"
+       "text/plain;q=0.8,*/*;q=0.1"))
 
 (def default-options
   "The default of each option that has one, which follows Webmention:
@@ -58,12 +59,18 @@
    :max-form-bytes       65536
    :proposed-backcompat? true})
 
-(defn- media-type
-  "The media type of the Content-Type in the response `headers`."
-  [headers]
-  (headers/media-type (headers/header headers "content-type")))
-
 ;;; Sending
+
+(defn- page-endpoint
+  "The endpoint that the first link or a element with rel=webmention names
+  on the HTML page in the `response`, or nil."
+  [{:keys [url body] :as response}]
+  (when (= :html (source/kind response))
+    ;; against the base element of the page too, as a browser resolves an
+    ;; href, a choice of our own where Webmention 3.1.2 names the target's
+    ;; URL
+    (let [{:keys [elements base]} (page/parse (str body) url)]
+      (first (discovery/page-urls elements base "webmention" #{:link :a})))))
 
 ;; Webmention 3.1.2
 (defn discover
@@ -75,16 +82,9 @@
   first link or a element of an HTML page, in document order. A relative
   URL counts from the URL of the response, after its redirects, and an
   empty one is that URL itself."
-  [{:keys [url headers body] :as response}]
+  [{:keys [url headers] :as response}]
   (let [endpoint (or (first (discovery/header-urls headers url "webmention"))
-                     (when (= :html (source/kind (media-type headers) body))
-                       ;; against the base element of the page too, as a
-                       ;; browser resolves an href, a choice of our own
-                       ;; where Webmention 3.1.2 names the target's URL
-                       (let [{:keys [elements base]} (page/parse (str body)
-                                                                 url)]
-                         (first (discovery/page-urls elements base "webmention"
-                                                     #{:link :a})))))]
+                     (page-endpoint response))]
     (when (url/web-url? endpoint)
       endpoint)))
 
@@ -119,32 +119,43 @@
   `source` links to the page at `target`."
   [endpoint source target]
   (when-not (every? url/web-url? [endpoint source target])
-    (throw (ex-info "The endpoint, the source and the target are http or https URLs"
+    (throw (ex-info (str "The endpoint, the source and the target are http "
+                         "or https URLs")
                     {:endpoint endpoint :source source :target target})))
   {:method  :post
    :url     endpoint
    :headers {"Content-Type" "application/x-www-form-urlencoded"}
    :body    (url/query-string [["source" source] ["target" target]])})
 
+(defn- location
+  "The URL in the Location header of the `response` to a request for
+  `url`, resolved against it, or nil."
+  [url {:keys [headers] :as response}]
+  (some->> (headers/header headers "location") (whatwg/resolve url)))
+
 ;; Issue 89 of the spec, https://github.com/w3c/webmention/issues/89: only
 ;; a 307 or a 308 sends a POST on, since a client turns a POST into a GET
 ;; after a 301, 302 or 303
+(defn- redirect
+  "The http or https URL that a 307 or a 308 `response` to a POST to `url`
+  sends it on to, but never from https to http, or nil."
+  [url {:keys [status] :as response}]
+  (when (#{307 308} status)
+    (let [to (location url response)]
+      (when (and (url/web-url? to)
+                 (not= ["https" "http"] (map url/scheme [url to])))
+        to))))
+
 (defn- post!
   "Send the `request` with `send`, and on to the endpoint that a 307 or a
-  308 names, `n` times at most, but never from https to http."
+  308 names, `n` times at most."
   [send request n]
   (async/then
    (send (assoc request :max-redirects 0))
-   (fn [{:keys [status headers] :as response}]
-     (let [from     (:url request)
-           location (when (and (#{307 308} status) (pos? n))
-                      (some->> (headers/header headers "location")
-                               (whatwg/resolve from)))]
-       (if (and (url/web-url? location)
-                (not (and (= "https" (url/scheme from))
-                          (= "http" (url/scheme location)))))
-         (post! send (assoc request :url location) (dec n))
-         response)))))
+   (fn [response]
+     (if-let [to (and (pos? n) (redirect (:url request) response))]
+       (post! send (assoc request :url to) (dec n))
+       response))))
 
 (defn- message
   "The start of the text `body` of an answer, or nil."
@@ -156,15 +167,13 @@
 (defn- answered
   "The `report` of a Webmention with the endpoint's answer in the
   `response`."
-  [report {:keys [status headers body url] :as response}]
-  (if (<= 200 status 299)
-    (let [location (when (= 201 status)
-                     (some->> (headers/header headers "location")
-                              (whatwg/resolve url)))]
-      (cond-> (assoc report :outcome :sent :status status)
-        location (assoc :location location)))
-    (cond-> (assoc report :outcome :failed :status status)
-      (message body) (assoc :message (message body)))))
+  [report {:keys [status body url] :as response}]
+  (let [sent?       (<= 200 status 299)
+        status-page (when (= 201 status) (location url response))
+        text        (when-not sent? (message body))]
+    (cond-> (assoc report :outcome (if sent? :sent :failed) :status status)
+      status-page (assoc :location status-page)
+      text        (assoc :message text))))
 
 (defn- post-to!
   "Post the Webmention of the `report` to its :endpoint by `opts`, and give
@@ -180,6 +189,16 @@
      (if error
        (assoc report :outcome :failed :error (http/failure error))
        (answered report value)))))
+
+(defn- endpoint!
+  "The :endpoint of `opts`, or else what discover! finds of the `target`,
+  or an :error when it isn't an http or https URL."
+  [target opts]
+  (cond
+    (:endpoint opts)      (select-keys opts [:endpoint])
+    (url/web-url? target) (discover! target opts)
+    :else                 {:error {:reason (str "The target is not an http "
+                                                "or https URL")}}))
 
 (defn send!
   "Tell the Webmention endpoint of the `target` that the page at `source`
@@ -203,25 +222,16 @@
   ([source target opts]
    (when-not (url/web-url? source)
      (throw (ex-info "The source is an http or https URL" {:source source})))
-   (let [opts   (merge default-options opts)
-         report {:source source :target target}]
+   (let [opts (merge default-options opts)]
      (async/then
-      (cond
-        (:endpoint opts)           {:endpoint (:endpoint opts)}
-        (not (url/web-url? target)) {:error {:reason "The target is not an http or https URL"}}
-        :else                      (discover! target opts))
+      (endpoint! target opts)
       (fn [{:keys [endpoint error not-before]}]
-        (let [report (cond-> report
+        (let [report (cond-> {:source source :target target}
                        not-before (assoc :not-before not-before))]
           (cond
-            error
-            (assoc report :outcome :failed :error error)
-
-            (nil? endpoint)
-            (assoc report :outcome :no-endpoint)
-
-            :else
-            (post-to! (assoc report :endpoint endpoint) opts))))))))
+            error    (assoc report :outcome :failed :error error)
+            endpoint (post-to! (assoc report :endpoint endpoint) opts)
+            :else    (assoc report :outcome :no-endpoint))))))))
 
 ;; Webmention 3.1.4 and 3.1.5
 (defn send-all!
@@ -249,34 +259,41 @@
   left out e.g. those of your own site."
   [x url]
   (let [{:keys [elements base]} (page/parse x url)]
-    (->> (page/hyperlinks elements base)
-         (filter url/web-url?)
-         distinct)))
+    (into [] (comp (filter url/web-url?) (distinct))
+          (page/hyperlinks elements base))))
 
 ;;; Verifying
 
+(defn- examined-page
+  "What the HTML `s` of the source at `url` says of the `target`, by `opts`:
+  an :outcome, and for a verified page its :mf2 and the :title of its
+  title element, if it has one."
+  [s url target opts]
+  (let [{:keys [nodes elements base]} (page/parse s url)]
+    (cond
+      (= 410 (source/status elements))
+      {:outcome :gone}
+
+      (source/html-links? elements base target)
+      (let [title (page/title elements)]
+        (cond-> {:outcome :verified
+                 :mf2     (mf/parse nodes url
+                                    (select-keys opts [:proposed-backcompat?]))}
+          title (assoc :title title)))
+
+      :else
+      {:outcome :unlinked})))
+
 (defn- examined
   "What the document of the 2xx `response` for a source says of the
-  `target`, by `opts`: an :outcome, and for a verified HTML page its :mf2
-  and the :title of its title element, if it has one."
-  [target {:keys [url headers body] :as response} opts]
-  (let [s (str body)]
-    (case (source/kind (media-type headers) s)
-      :html (let [{:keys [nodes elements base]} (page/parse s url)]
-              (cond
-                (= 410 (source/status elements))
-                {:outcome :gone}
-
-                (source/html-links? elements base target)
-                (cond-> {:outcome :verified
-                         :mf2     (mf/parse nodes url
-                                            (select-keys opts [:proposed-backcompat?]))}
-                  (page/title elements) (assoc :title (page/title elements)))
-
-                :else
-                {:outcome :unlinked}))
-      :json {:outcome (if (source/json-links? s target) :verified :unlinked)}
-      :text {:outcome (if (str/includes? s target) :verified :unlinked)}
+  `target`, by `opts`, as examined-page has it."
+  [target {:keys [url body] :as response} opts]
+  (let [s       (str body)
+        outcome #(if % :verified :unlinked)]
+    (case (source/kind response)
+      :html (examined-page s url target opts)
+      :json {:outcome (outcome (source/json-links? s target))}
+      :text {:outcome (outcome (str/includes? s target))}
       {:outcome :unlinked})))
 
 ;; Webmention 3.2.4: a 410, or a source without the link, is a deletion
@@ -286,9 +303,9 @@
   [{:keys [target] :as job} {:keys [status url] :as response} opts]
   (let [report (assoc job :status status :url url)]
     (cond
-      (= 410 status)        (assoc report :outcome :gone)
-      (<= 200 status 299)   (merge report (examined target response opts))
-      :else                 (assoc report :outcome :failed))))
+      (= 410 status)      (assoc report :outcome :gone)
+      (<= 200 status 299) (merge report (examined target response opts))
+      :else               (assoc report :outcome :failed))))
 
 ;; Webmention 3.2.2 and 4.2
 (defn verify!
@@ -422,8 +439,7 @@
   body that it has read, and with :report! the handler gives a promise."
   [{:keys [target-pred schedule! report!] :as opts}]
   (when-not (and (ifn? target-pred) (ifn? (or report! schedule!)))
-    (throw (ex-info "An endpoint needs the functions :target-pred and :schedule!"
-                    {})))
+    (throw (ex-info "An endpoint needs a :target-pred and a :schedule!" {})))
   (let [opts (merge default-options opts)]
     (ring/handler
      (fn [request]

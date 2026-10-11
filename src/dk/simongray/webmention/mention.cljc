@@ -12,7 +12,6 @@
             [dk.simongray.microformats :as mf]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
-            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]
             [dk.simongray.webmention :as webmention]
             [dk.simongray.webmention.source :as source]))
@@ -204,12 +203,8 @@
 (defn- fetched-card
   "The h-card that represents the author of the HTML page in the
   `response`, as card gives it, or nil."
-  [{:keys [status url headers body] :as response}]
-  (when (and status
-             (<= 200 status 299)
-             (= :html (source/kind (headers/media-type
-                                    (headers/header headers "content-type"))
-                                   (str body))))
+  [{:keys [status url body] :as response}]
+  (when (and (<= 200 status 299) (= :html (source/kind response)))
     (some-> (some identity (take 2 (cards (mf/parse (str body) url) url)))
             card)))
 

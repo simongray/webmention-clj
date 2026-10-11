@@ -5,33 +5,35 @@
             #?(:clj [clojure.data.json :as json])
             [dk.simongray.html-pieces :as html]
             [dk.simongray.html-pieces.url :as url]
+            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.webmention.page :as page]))
 
 ;; RFC 9110, section 8.3: a document without a media type can be
 ;; examined; RFC 6839, section 3.1: the +json and +xml suffixes
 (defn kind
-  "The kind of the document `s` of `media-type`, :html, :json or :text, or
+  "The kind of the document in the `response`, :html, :json or :text, or
   nil for one whose links can't be read. Without a media type, a document
   with markup is HTML."
-  [media-type s]
-  (cond
-    (#{"text/html" "application/xhtml+xml"} media-type)
-    :html
+  [{:keys [headers body] :as response}]
+  (let [media-type (headers/media-type (headers/header headers "content-type"))]
+    (cond
+      (#{"text/html" "application/xhtml+xml"} media-type)
+      :html
 
-    (some->> media-type (re-find #"^application/([^/]+\+)?json$"))
-    :json
+      (some->> media-type (re-find #"^application/([^/]+\+)?json$"))
+      :json
 
-    (some->> media-type (re-find #"^text/|[/+]xml$"))
-    :text
+      (some->> media-type (re-find #"^text/|[/+]xml$"))
+      :text
 
-    (some? media-type)
-    nil
+      (some? media-type)
+      nil
 
-    (html/markup? s)
-    :html
+      (html/markup? (str body))
+      :html
 
-    :else
-    :text))
+      :else
+      :text)))
 
 (defn normalized
   "The URL `s` normalized as a browser normalizes it, e.g. with its domain
