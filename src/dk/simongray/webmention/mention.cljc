@@ -240,10 +240,11 @@
   [:max-length :any-name? :page-title?])
 
 (defn content-element
-  "The `element` of a mention's content as your page shows it: a heading
-  as a paragraph, so that it stays out of the page's outline, an image as
-  its alt text, so that it doesn't load from another site, and a link
-  with rel=\"nofollow ugc\", as content that a stranger wrote."
+  "The `element` of a mention's content as your page shows it:
+
+  - a heading as a paragraph, so that it stays out of the page's outline
+  - an image as its alt text, so that it doesn't load from another site
+  - a link with rel=\"nofollow ugc\", as content that a stranger wrote"
   [[tag attrs & children :as element]]
   (case tag
     (:h1 :h2 :h3 :h4 :h5 :h6) (into [:p {}] children)

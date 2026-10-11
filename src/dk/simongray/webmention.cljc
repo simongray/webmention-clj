@@ -212,9 +212,9 @@
 
   The report also has the :source, the :target, the :endpoint once it's
   known, and the :not-before of the target, if any. The `opts` are those
-  of default-options, and :endpoint, one that you found before, e.g.
-  while the :not-before of the target is still to come, so that the
-  target isn't fetched again. A 307 or a 308 from the endpoint sends the
+  of default-options, and an :endpoint that you found before, e.g. while
+  the :not-before of the target is still to come, so that the target
+  isn't fetched again. A 307 or a 308 from the endpoint sends the
   Webmention on to the endpoint that it names. In ClojureScript, it gives
   a promise."
   ([source target]
