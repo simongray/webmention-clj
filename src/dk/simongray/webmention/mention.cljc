@@ -6,16 +6,15 @@
   W3C Note of 18 January 2018 at https://www.w3.org/TR/post-type-discovery/.
   The author follows the authorship algorithm at
   https://indieweb.org/authorship-spec, and the h-card of a page follows
-  https://microformats.org/wiki/representative-h-card-parsing.
+  https://microformats.org/wiki/representative-h-card-parsing, as
+  microformats-clj reads them.
 
-  The steps behind these functions are in dk.simongray.webmention.items,
-  dk.simongray.webmention.authorship and dk.simongray.webmention.content,
-  which aren't part of the API."
+  The steps behind these functions are in dk.simongray.webmention.items
+  and dk.simongray.webmention.content, which aren't part of the API."
   (:require [dk.simongray.microformats :as mf]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.webmention :as webmention]
-            [dk.simongray.webmention.authorship :as authorship]
             [dk.simongray.webmention.content :as content]
             [dk.simongray.webmention.items :as items]
             [dk.simongray.webmention.source :as source]))
@@ -80,7 +79,13 @@
   the first whose url is that of a rel=me link of the page, or else the
   only h-card, if its url is that of the page."
   [mf2 url]
-  (some-> (some identity (authorship/cards mf2 url)) items/card))
+  (some-> (mf/representative-card mf2 url) items/card))
+
+(defn- microformats
+  "The microformats of the HTML page in the 2xx `response`, or nil."
+  [{:keys [status url body] :as response}]
+  (when (and (<= 200 status 299) (= :html (source/kind response)))
+    (mf/parse (str body) url)))
 
 (defn author!
   "The author of the mention in the `report` of a verification, by the
@@ -96,18 +101,18 @@
   ([report]
    (author! report {}))
   ([{:keys [mf2 url source] :as report} opts]
-   (let [base                      (or url source)
-         {:keys [page] :as author} (authorship/author mf2 base
-                                                      (entry mf2 base))]
+   (let [base                (or url source)
+         {:keys [card page]} (mf/author mf2 base (entry mf2 base))]
      (if-not page
        ;; a promise in ClojureScript too
-       (async/then (:card author) identity)
+       (async/then (some-> card items/card) identity)
        (async/then
         (async/attempt #(http/fetch! page (merge webmention/default-options
                                                  opts)))
         (fn [{:keys [value]}]
-          (or (some-> value authorship/fetched-card)
-              (authorship/page-card mf2 page)
+          ;; the authorship algorithm, step 7
+          (or (some-> (mf/author-card mf2 page (some-> value microformats))
+                      items/card)
               {:url page})))))))
 
 ;;; Content
@@ -158,7 +163,7 @@
   ([{:keys [mf2 url source target] page-title :title :as report} opts]
    (let [base   (or url source)
          e      (entry mf2 base)
-         author (authorship/author mf2 base e)
+         author (mf/author mf2 base e)
          k      (if e (kind e target) :mention)
          opts   (merge {:element-fn content-element} opts)]
      (into {} (filter val)
@@ -168,9 +173,9 @@
             :url         (or (first (items/urls e :url)) base)
             :author      (if-let [page (:page author)]
                            {:url page}
-                           (:card author))
+                           (some-> (:card author) items/card))
             :name        (content/named e page-title opts)
-            :published   (items/property e :published)
+            :published   (mf/property e :published)
             :content     (content/sanitized e base opts)
             :in-reply-to (not-empty (vec (items/urls e :in-reply-to)))
             :rsvp        (when (= :rsvp k) (items/rsvp e))}))))

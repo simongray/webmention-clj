@@ -4,7 +4,7 @@
   the name of an article."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
-            [dk.simongray.webmention.items :as items]))
+            [dk.simongray.microformats :as mf]))
 
 ;;; The content
 
@@ -114,9 +114,9 @@
   "The name of the `item` when it's a title rather than the start of its
   content, or nil."
   [item]
-  (let [n    (squeezed (items/property item :name))
-        text (squeezed (or (items/property item :content)
-                           (items/property item :summary)))]
+  (let [n    (squeezed (mf/property item :name))
+        text (squeezed (or (mf/property item :content)
+                           (mf/property item :summary)))]
     (when (and (seq n) (seq text) (not (str/starts-with? text n)))
       n)))
 
@@ -125,7 +125,7 @@
   `page-title`, by the :any-name? and :page-title? of `opts`, or nil."
   [entry page-title {:keys [any-name? page-title?] :as opts}]
   (or (if any-name?
-        (squeezed (items/property entry :name))
+        (squeezed (mf/property entry :name))
         (title entry))
       (when page-title?
         page-title)))
