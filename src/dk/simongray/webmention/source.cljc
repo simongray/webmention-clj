@@ -3,10 +3,10 @@
   links the target, and whether it says that it's gone."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
-            [dk.simongray.html-pieces.url :as url]
             [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.json :as json]
-            [dk.simongray.webmention.page :as page]))
+            [dk.simongray.webmention.page :as page]
+            [dk.simongray.whatwg-url :as url]))
 
 ;; RFC 9110, section 8.3: a document without a media type can be
 ;; examined; RFC 6839, section 3.1: the +json and +xml suffixes

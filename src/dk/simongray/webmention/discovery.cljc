@@ -7,8 +7,8 @@
   discover their endpoints in the same way, by other relation types, so
   this could move to a library that they share."
   (:require [clojure.string :as str]
-            [dk.simongray.html-pieces.url :as url]
-            [dk.simongray.wary-fetch.headers :as headers]))
+            [dk.simongray.wary-fetch.headers :as headers]
+            [dk.simongray.whatwg-url :as url]))
 
 ;; RFC 8288, section 3.3: a set of types separated by whitespace, in any
 ;; case

@@ -3,12 +3,12 @@
   the endpoint on the page of a target, posting the Webmention to it, and
   reading its answer."
   (:require [dk.simongray.html-pieces :as html]
-            [dk.simongray.html-pieces.url :as whatwg]
             [dk.simongray.wary-fetch :as http]
             [dk.simongray.wary-fetch.async :as async]
             [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.url :as url]
-            [dk.simongray.webmention.source :as source]))
+            [dk.simongray.webmention.source :as source]
+            [dk.simongray.whatwg-url :as whatwg-url]))
 
 ;; Webmention 3.1.2
 (defn page-endpoint
@@ -29,7 +29,7 @@
   "The URL in the Location header of the `response` to a request for
   `url`, resolved against it, or nil."
   [url {:keys [headers] :as response}]
-  (some->> (headers/header headers "location") (whatwg/resolve url)))
+  (some->> (headers/header headers "location") (whatwg-url/resolve url)))
 
 ;; Issue 89 of the spec, https://github.com/w3c/webmention/issues/89: only
 ;; a 307 or a 308 sends a POST on, since a client turns a POST into a GET

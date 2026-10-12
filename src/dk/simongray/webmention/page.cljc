@@ -4,7 +4,7 @@
   in its attributes and its title."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
-            [dk.simongray.html-pieces.url :as url]))
+            [dk.simongray.whatwg-url :as url]))
 
 (defn- candidates
   "The URLs in the value `v` of the attribute `k`: one, or a list of them
