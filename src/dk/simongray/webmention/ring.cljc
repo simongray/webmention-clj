@@ -1,8 +1,8 @@
 (ns ^:no-doc dk.simongray.webmention.ring
   "The Ring requests that a Webmention endpoint takes, and the answers it
   gives."
-  (:require [dk.simongray.wary-fetch.bytes :as bytes]
-            [dk.simongray.wary-fetch.url :as url])
+  (:require [dk.simongray.wary-fetch.url :as url]
+            [dk.simongray.webcrypto.bytes :as bytes])
   #?(:clj (:import [java.io InputStream])))
 
 (defn body-text

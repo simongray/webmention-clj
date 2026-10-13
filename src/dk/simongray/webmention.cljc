@@ -29,7 +29,7 @@
 (def user-agent
   "The User-Agent of the requests that the library sends, unless the
   options name another."
-  "webmention-clj/0.2.1")
+  "webmention-clj/0.3.0")
 
 ;; Webmention 3.2.2: the media types whose links the library reads first
 (def accept
