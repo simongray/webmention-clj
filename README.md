@@ -38,7 +38,7 @@ from [Clojars](https://clojars.org/dk.simongray/webmention-clj) to the
 `:deps` in your `deps.edn`:
 
 ```clojure
-dk.simongray/webmention-clj {:mvn/version "0.2.0"}
+dk.simongray/webmention-clj {:mvn/version "0.2.1"}
 ```
 
 For changes that aren't released yet, use the SHA of the latest commit on

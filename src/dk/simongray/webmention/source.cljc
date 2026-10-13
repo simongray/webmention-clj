@@ -3,30 +3,30 @@
   links the target, and whether it says that it's gone."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
-            [dk.simongray.wary-fetch.headers :as headers]
             [dk.simongray.wary-fetch.json :as json]
             [dk.simongray.webmention.page :as page]
+            [dk.simongray.whatwg-mime :as mime]
             [dk.simongray.whatwg-url :as url]))
 
 ;; RFC 9110, section 8.3: a document without a media type can be
-;; examined; RFC 6839, section 3.1: the +json and +xml suffixes
+;; examined; MIME Sniffing, section 4.6: the groups of JSON and XML
 (defn kind
   "The kind of the document in the `response`, :html, :json or :text, or
   nil for one whose links can't be read. Without a media type, a document
   with markup is HTML."
   [{:keys [headers body] :as response}]
-  (let [media-type (headers/media-type (headers/header headers "content-type"))]
+  (let [m (mime/extract (get headers "content-type"))]
     (cond
-      (#{"text/html" "application/xhtml+xml"} media-type)
+      (#{"text/html" "application/xhtml+xml"} (mime/essence m))
       :html
 
-      (some->> media-type (re-find #"^application/([^/]+\+)?json$"))
+      (mime/json? m)
       :json
 
-      (some->> media-type (re-find #"^text/|[/+]xml$"))
+      (or (= "text" (:type m)) (mime/xml? m))
       :text
 
-      (some? media-type)
+      (some? m)
       nil
 
       (html/markup? (str body))
