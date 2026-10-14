@@ -431,3 +431,8 @@
          (wm/verify! {:source source :target target}
                      {:send (sender (atom []) {[:get source] (page "<p>Re nothing")})})
          (fn [report] (is (not (contains? report :mf2)) "only for a source that links the target")))))
+
+#?(:clj
+   (deftest the-version-in-the-user-agent
+     (is (str/includes? (slurp "build.clj") (pr-str wm/user-agent))
+         "the User-Agent that the jar names with the version of its tag")))

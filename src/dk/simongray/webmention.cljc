@@ -25,11 +25,12 @@
 
 ;;; Options
 
-;; Webmention 3.1.2: a User-Agent that says what the request is for
+;; Webmention 3.1.2: a User-Agent that says what the request is for. The
+;; jar names its version in place of dev.
 (def user-agent
   "The User-Agent of the requests that the library sends, unless the
   options name another."
-  "webmention-clj/0.3.0")
+  "webmention-clj/dev")
 
 ;; Webmention 3.2.2: the media types whose links the library reads first
 (def accept
